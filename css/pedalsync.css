@@ -284,6 +284,31 @@ body {
   margin-top: 16px;
 }
 .connect-help a { color: var(--gold); text-decoration: none; }
+.connect-trouble {
+  font-size: 0.8rem;
+  color: var(--text);
+  max-width: 340px;
+  line-height: 1.6;
+  margin-top: 20px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--gold-dim);
+}
+.connect-trouble-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.connect-trouble ul {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--text-dim);
+}
+.connect-trouble li { padding: 2px 0; }
+.connect-trouble a { color: var(--gold); text-decoration: none; }
 .connect-divider {
   width: 100%;
   max-width: 320px;
@@ -874,6 +899,19 @@ body {
   color: var(--red);
   letter-spacing: 0.04em;
   animation: reconnect-pulse 1.5s ease-in-out infinite;
+}
+.reconnect-banner.settled { animation: none; }
+.reconnect-banner .banner-btn {
+  margin-left: 10px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  padding: 4px 12px;
+  cursor: pointer;
 }
 @keyframes reconnect-pulse {
   0%, 100% { opacity: 1; }

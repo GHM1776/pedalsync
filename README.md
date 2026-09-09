@@ -25,6 +25,8 @@ PedalSync is a browser dashboard that connects directly to Echelon bikes, rowers
 
 Unrecognized Echelon devices fall back to a generic bike profile, so newer models generally work too.
 
+Connect and Connect Sport ship with locked firmware (BLE names `ECH-CONNECT`, `ECH-SPORT`, `ECH-SPORTS`) — PedalSync detects the lockout and unlocks them automatically.
+
 ## Requirements
 
 PedalSync uses Web Bluetooth, so it needs **Chrome or Edge on Android, Windows, macOS, or ChromeOS**. iPhone/iPad and Firefox do not support Web Bluetooth.

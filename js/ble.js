@@ -7,8 +7,9 @@
   var intentionalDisconnect = false;
   var reconnecting = false;
 
-  var MAX_RECONNECT_ATTEMPTS = 5;
-  var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // exponential backoff
+  var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // backoff between attempts
+  var RECONNECT_WINDOW_MS = 60000;  // wall-clock budget — hard-fail after this
+  var reconnectDeadline = 0;
 
   // ---- Silent Debug Logging ----
   // Sends debug events to Pulse — invisible to the user, visible in session timeline
@@ -53,10 +54,18 @@
   });
 
   // ---- Reconnect Banner ----
-  function showReconnectBanner(msg) {
+  function showReconnectBanner(msg, showRetry) {
     var banners = document.querySelectorAll('.reconnect-banner');
     banners.forEach(function(b) {
       b.textContent = msg || 'Reconnecting...';
+      b.classList.toggle('settled', !!showRetry);
+      if (showRetry) {
+        var btn = document.createElement('button');
+        btn.className = 'banner-btn';
+        btn.textContent = 'RECONNECT';
+        btn.onclick = window.manualReconnect;
+        b.appendChild(btn);
+      }
       b.classList.remove('hidden');
     });
   }
@@ -136,6 +145,9 @@
       throw e;
     }
 
+    s.connectedAt = Date.now() / 1000;
+    s.autoDisconnected = false;
+
     return { writeChar: writeChar, dataChar: dataChar };
   }
 
@@ -144,6 +156,8 @@
     var statusEl = document.getElementById('connect-status');
     statusEl.textContent = 'Scanning for device...';
     intentionalDisconnect = false;
+    if (window.__pulse) window.__pulse('connect_click');
+    var pickerOpened = Date.now();
 
     try {
       s.bleDevice = await navigator.bluetooth.requestDevice({
@@ -208,10 +222,20 @@
 
       // Track connect event in Pulse — include raw BLE name for unknown models
       if (window.__pulse) window.__pulse('connect', s.equipmentType + ':' + s.bikeModel + ':' + s.bleDevice.name);
+      if (window.clearConnectTrouble) clearConnectTrouble();
 
     } catch(err) {
       if (err.name === 'NotFoundError') {
-        statusEl.textContent = 'No device selected. Tap CONNECT to try again.';
+        // Same error for "user closed picker" and "nothing ever appeared" —
+        // time in the picker is the tell: a long wait means no device showed
+        var pickerSec = Math.round((Date.now() - pickerOpened) / 1000);
+        if (pickerSec >= 8) {
+          statusEl.textContent = 'No device found. Make sure the equipment is powered on and awake, and no other app or tablet is connected to it.';
+          if (window.__pulse) window.__pulse('picker_empty', pickerSec + 's');
+        } else {
+          statusEl.textContent = 'No device selected. Tap CONNECT to try again.';
+          if (window.__pulse) window.__pulse('picker_cancel', pickerSec + 's');
+        }
       } else {
         statusEl.textContent = 'Error: ' + err.message;
         debug('Connect error', err.message);
@@ -335,46 +359,81 @@
     // If user explicitly disconnected, do full cleanup
     if (intentionalDisconnect) {
       debug('Intentional disconnect, cleaning up');
+      if (window.__pulse) window.__pulse('disconnect', (s.autoDisconnected ? 'auto:' : 'user:') + s.equipmentType + ':' + s.bikeModel);
       fullDisconnectCleanup();
       return;
     }
 
-    // Unexpected disconnect — try to reconnect
+    // Unexpected disconnect — try to reconnect inside a fixed wall-clock window
     debug('Unexpected disconnect, attempting reconnect');
-    if (window.__pulse) window.__pulse('ble_drop', s.equipmentType + ':' + s.bikeModel);
+    if (window.__pulse) window.__pulse('disconnect', 'drop:' + s.equipmentType + ':' + s.bikeModel);
+    reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
     attemptReconnect(0);
   }
 
   // ---- Auto-Reconnect ----
+  // gatt.connect() itself can hang for 30s+, so a raw attempt counter gives no
+  // bound on total time. Race each attempt against the remaining window instead.
+  function connectWithTimeout(ms) {
+    return new Promise(function(resolve, reject) {
+      var done = false;
+      var t = setTimeout(function() {
+        if (done) return;
+        done = true;
+        try { s.bleDevice.gatt.disconnect(); } catch(e) {} // cancels the pending connect
+        reject(new Error('connect timed out'));
+      }, Math.max(ms, 1000));
+      s.bleDevice.gatt.connect().then(
+        function(server) {
+          if (done) { try { s.bleDevice.gatt.disconnect(); } catch(e) {} return; }
+          done = true; clearTimeout(t); resolve(server);
+        },
+        function(err) {
+          if (done) return;
+          done = true; clearTimeout(t); reject(err);
+        }
+      );
+    });
+  }
+
+  function hardFailReconnect(attempts) {
+    reconnecting = false;
+    var elapsed = Math.round((RECONNECT_WINDOW_MS - (reconnectDeadline - Date.now())) / 1000);
+    debug('Reconnect hard fail', { attempts: attempts, elapsed_s: elapsed });
+    if (window.__pulse) window.__pulse('reconnect_failed', 'attempts:' + attempts + ':elapsed:' + elapsed + 's');
+    // Stay on the dashboard with a manual retry — don't silently dump to the connect screen
+    showReconnectBanner('Connection lost — couldn\'t reconnect. ', true);
+  }
+
+  window.manualReconnect = function() {
+    if (reconnecting || intentionalDisconnect) return;
+    reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
+    showReconnectBanner('Reconnecting...');
+    attemptReconnect(0);
+  };
+
   async function attemptReconnect(attempt) {
     if (intentionalDisconnect) return;
-    if (attempt >= MAX_RECONNECT_ATTEMPTS) {
-      debug('Reconnect failed after ' + MAX_RECONNECT_ATTEMPTS + ' attempts');
-      if (window.__pulse) window.__pulse('reconnect_failed', 'attempts:' + attempt);
-      showReconnectBanner('Connection lost. Tap DISCONNECT then reconnect.');
-      // Don't auto-navigate — let them try manually or the banner tells them what to do
-      setTimeout(function() {
-        hideReconnectBanner();
-        fullDisconnectCleanup();
-      }, 5000);
-      return;
-    }
+    if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt); return; }
 
     reconnecting = true;
-    var delay = RECONNECT_DELAYS[attempt] || 15000;
+    var remaining = reconnectDeadline - Date.now();
+    var delay = Math.min(RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)],
+                         Math.max(remaining - 5000, 500));
     showReconnectBanner('Reconnecting' + '.'.repeat((attempt % 3) + 1) + ' (attempt ' + (attempt + 1) + ')');
-    debug('Reconnect attempt ' + (attempt + 1), { delay: delay });
+    debug('Reconnect attempt ' + (attempt + 1), { delay: delay, remaining_ms: remaining });
 
     // Wait before retry
     await new Promise(function(r) { setTimeout(r, delay); });
 
     // Check if user disconnected while we were waiting
     if (intentionalDisconnect) { reconnecting = false; return; }
+    if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt + 1); return; }
 
     try {
       if (!s.bleDevice) throw new Error('No device reference');
 
-      var server = await s.bleDevice.gatt.connect();
+      var server = await connectWithTimeout(reconnectDeadline - Date.now());
       debug('GATT reconnected on attempt ' + (attempt + 1));
       // New capture leg — the previous one ended at PSDiag.disconnected()
       if (window.PSDiag) {
@@ -397,9 +456,31 @@
 
     } catch(err) {
       debug('Reconnect attempt ' + (attempt + 1) + ' failed', err.message);
-      // Try again with next backoff
+      if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt + 1); return; }
       attemptReconnect(attempt + 1);
     }
+  }
+
+  // ---- Ride Summary (non-coach rides; coach workouts emit workout_end) ----
+  function avgOf(arr) {
+    if (!arr || !arr.length) return 0;
+    var t = 0;
+    for (var i = 0; i < arr.length; i++) t += arr[i];
+    return t / arr.length;
+  }
+
+  function emitRideComplete() {
+    if (s.workoutActive || s.rideElapsed < 120) return;
+    var dur = Math.round(s.rideElapsed);
+    var v;
+    if (s.equipmentType === 'rower') {
+      v = 'rower:' + dur + 's:avgSPM:' + Math.round(avgOf(s.rowerSPMSamples));
+    } else if (s.equipmentType === 'treadmill') {
+      v = 'treadmill:' + dur + 's:avgMPH:' + (Math.round(avgOf(s.treadSpeedSamples) * 10) / 10);
+    } else {
+      v = 'bike:' + dur + 's:avgW:' + Math.round(avgOf(s.powerSamples));
+    }
+    if (window.__pulse) window.__pulse('ride_complete', v);
   }
 
   // ---- Full Cleanup (only on intentional disconnect or failed reconnect) ----
@@ -408,6 +489,7 @@
     releaseWakeLock();
     hideReconnectBanner();
 
+    emitRideComplete();
     s.rideActive = false;
 
     if (s.telemetryInterval) {
@@ -419,9 +501,11 @@
     document.getElementById('rower-dashboard').style.display = 'none';
     document.getElementById('treadmill-dashboard').style.display = 'none';
     document.getElementById('connect-screen').style.display = 'flex';
-    document.getElementById('connect-status').textContent =
-      'Disconnected — power on your device and reconnect.';
+    document.getElementById('connect-status').textContent = s.autoDisconnected
+      ? 'Auto-disconnected after ' + Math.round(PS.IDLE_TIMEOUT_DISCONNECT / 60) + ' minutes of inactivity to save battery. Tap CONNECT to resume.'
+      : 'Disconnected — power on your device and reconnect.';
     location.hash = 'connect';
+    if (window.armConnectTrouble) armConnectTrouble();
   }
 
   // ---- Voluntary Disconnect (user-initiated) ----

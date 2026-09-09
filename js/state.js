@@ -13,14 +13,17 @@ PS.CMD_ENABLE  = new Uint8Array([0xF0, 0xB0, 0x01, 0x01, 0xA2]);
 PS.API_BASE = location.origin;
 
 // ---- Timeouts ----
-PS.IDLE_TIMEOUT_WORKOUT = 300;  // 5 min — auto-stop workout
-PS.IDLE_TIMEOUT_RIDE    = 180;  // 3 min — pause ride tracking
+PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
+PS.IDLE_TIMEOUT_RIDE       = 180;   // 3 min — pause ride tracking
+PS.IDLE_TIMEOUT_DISCONNECT = 1800;  // 30 min — auto-disconnect BLE to save battery
 
 // ---- Mutable State ----
 PS.state = {
   // BLE
   bleDevice: null,
   writeChar: null,
+  connectedAt: 0,          // unix sec of last successful GATT setup (idle-disconnect basis)
+  autoDisconnected: false, // set when the 30-min idle auto-disconnect fired
 
   // Telemetry (bike)
   cadence: 0,
@@ -98,6 +101,9 @@ PS.detectModel = function(bleName) {
     'ECHEX-5':     { name: 'EX-5',          maxR: 32, type: 'bike' },
     'ECHEX-7':     { name: 'EX-7S',         maxR: 32, type: 'bike' },
     'ECH-GT':      { name: 'GT+',           maxR: 32, type: 'bike' },
+    // Connect / Connect Sport ship with locked firmware (E0 challenge) — the
+    // unlock proxy handles them. ECH-SPORTS is a newer BLE-name variant.
+    'ECH-SPORTS':  { name: 'Connect Sport', maxR: 32, type: 'bike' },
     'ECH-SPORT':   { name: 'Connect Sport', maxR: 32, type: 'bike' },
     'ECH-CONNECT': { name: 'Connect',       maxR: 32, type: 'bike' },
     'ROW-7S':      { name: 'Row-7S',        maxR: 32, type: 'rower' },

@@ -4,11 +4,36 @@
 (function() {
   var s = PS.state;
 
+  // ---- Connect-Screen Trouble Timer ----
+  // People stall silently on the connect screen — after 60s without a
+  // connection, surface help and record that it happened.
+  var troubleTimer = null;
+
+  window.armConnectTrouble = function() {
+    if (troubleTimer) clearTimeout(troubleTimer);
+    var el = document.getElementById('connect-trouble');
+    if (el) el.classList.add('hidden');
+    troubleTimer = setTimeout(function() {
+      troubleTimer = null;
+      var screen = document.getElementById('connect-screen');
+      if (!el || !screen || screen.style.display === 'none' || screen.style.display === '') return;
+      el.classList.remove('hidden');
+      if (window.__pulse) window.__pulse('connect_trouble_shown', navigator.bluetooth ? 'ble_ok' : 'no_ble');
+    }, 60000);
+  };
+
+  window.clearConnectTrouble = function() {
+    if (troubleTimer) { clearTimeout(troubleTimer); troubleTimer = null; }
+    var el = document.getElementById('connect-trouble');
+    if (el) el.classList.add('hidden');
+  };
+
   // ---- View Router ----
   window.showConnectScreen = function() {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('connect-screen').style.display = 'flex';
     location.hash = 'connect';
+    armConnectTrouble();
 
     // Check Web Bluetooth support
     if (!navigator.bluetooth) {
@@ -56,6 +81,18 @@
       }
       if (s.rideActive && idleTime >= PS.IDLE_TIMEOUT_RIDE) {
         s.rideActive = false;
+      }
+    }
+
+    // Auto-disconnect after 30 min with no activity — a connected phone holds a
+    // wake lock and streams BLE, which drains a battery flat overnight.
+    // Basis is last pedal/stroke/step, or connect time if they never moved.
+    if (s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected && !s.autoDisconnected) {
+      var idleSince = s.lastNonZeroCadenceTime > 0 ? s.lastNonZeroCadenceTime : s.connectedAt;
+      if (idleSince > 0 && (Date.now() / 1000 - idleSince) >= PS.IDLE_TIMEOUT_DISCONNECT) {
+        s.autoDisconnected = true;
+        if (window.__pulse) window.__pulse('auto_disconnect', 'idle:' + Math.round(PS.IDLE_TIMEOUT_DISCONNECT / 60) + 'min:' + s.equipmentType);
+        disconnectBike();
       }
     }
   };
