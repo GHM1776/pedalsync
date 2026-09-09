@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/css/pedalsync.css">
+<script defer src="https://pulse.intrepidend.com/s.js" data-s="pedalsync"></script>
+<title>PedalSync</title>
+</head>
+<body>
+
+<!-- ============ LANDING ============ -->
+<div id="gate">
+  <h1>PEDALSYNC</h1>
+  <div class="tagline">Free your Echelon from the subscription</div>
+
+  <div class="landing-section">
+    <div class="landing-what">
+      PedalSync connects directly to your Echelon equipment over Bluetooth
+      and gives you real-time telemetry — no subscription, no app install, no account.
+      Just open this page on your phone, laptop, or tablet, tap connect, and ride.
+    </div>
+  </div>
+
+  <div class="landing-section">
+    <div class="landing-label">WHAT YOU GET</div>
+    <ul class="gate-features">
+      <li><span>▸</span> Real-time cadence, resistance &amp; power</li>
+      <li><span>▸</span> AI-powered workout coach</li>
+      <li><span>▸</span> Works on locked firmware (v3.12+)</li>
+      <li><span>▸</span> Export workouts to Strava &amp; Garmin</li>
+      <li><span>▸</span> No app install — runs in Chrome</li>
+    </ul>
+  </div>
+
+  <div class="landing-section">
+    <div class="landing-label">EQUIPMENT STATUS</div>
+    <div class="equip-grid">
+      <div class="equip-card">
+        <div class="equip-status live">LIVE</div>
+        <div class="equip-name">Bikes</div>
+        <div class="equip-models">EX-3 · EX-5 · EX-5S · EX-7S · GT+ · Connect Sport</div>
+      </div>
+      <div class="equip-card">
+        <div class="equip-status live">LIVE</div>
+        <div class="equip-name">Rowers</div>
+        <div class="equip-models">Row-S · Row-7S · Row Sport · Row-4S</div>
+      </div>
+      <div class="equip-card">
+        <div class="equip-status coming">COMING SOON</div>
+        <div class="equip-name">Treadmills</div>
+        <div class="equip-models">Stride — looking for testers</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate-form">
+    <button class="btn-primary" onclick="showConnectScreen()" style="letter-spacing:0.12em">CONNECT YOUR EQUIPMENT</button>
+  </div>
+
+  <div class="gate-note">
+    Works in Chrome, Edge, Brave, Opera &amp; Samsung Internet on Android, Windows, Mac &amp; Linux<br>
+    Not supported on iPhone or iPad · Not supported in Safari or Firefox on any platform
+  </div>
+
+  <div class="landing-section">
+    <div class="landing-label">HELP US GROW</div>
+    <div class="landing-help">
+      PedalSync is a work in progress. If you have an Echelon treadmill or a model
+      we haven't tested yet, we'd love your help getting it online.
+      Android &amp; iOS apps with Zwift/Peloton bridging are in development —
+      drop us a line to get notified or volunteer as a tester.
+    </div>
+    <a class="btn-contact" href="mailto:updates@pedalsync.app">updates@pedalsync.app</a>
+  </div>
+</div>
+
+<!-- ============ CONNECT SCREEN ============ -->
+<div id="connect-screen">
+  <h1>PEDALSYNC</h1>
+  <div class="subtitle">
+    Power on your Echelon equipment, then tap below.<br>
+    Your browser will ask you to select your device.
+  </div>
+  <button class="btn-connect" onclick="connectBike()">CONNECT</button>
+  <div class="connect-status" id="connect-status"></div>
+
+  <div class="connect-divider">OR</div>
+
+  <button class="btn-install hidden" id="btn-install" onclick="installApp()">INSTALL APP</button>
+  <div class="install-note" id="install-note">
+    Add PedalSync to your home screen for a full-screen<br>
+    app experience. Works offline for telemetry.
+  </div>
+
+  <div class="ble-warning" id="ble-warning"></div>
+</div>
+
+<!-- ============ BIKE DASHBOARD ============ -->
+<div id="dashboard">
+  <!-- Support banner — shown after a few rides, dismissible -->
+  <div class="support-banner hidden" id="bike-support-banner">
+    <span class="support-banner-text">Enjoying PedalSync? <a href="https://buymeacoffee.com/pedalsync" target="_blank" rel="noopener">Support the project</a></span>
+    <button class="support-banner-close" onclick="dismissBanner()">&times;</button>
+  </div>
+  <div class="reconnect-banner hidden">Reconnecting...</div>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>PEDALSYNC</h1>
+      <div class="bike-name" id="bike-name">—</div>
+    </div>
+    <div class="status-dot" id="status-dot"></div>
+  </div>
+
+  <div class="top-stats">
+    <div class="top-stat" id="card-cadence">
+      <div class="stat-label">CADENCE</div>
+      <div class="stat-value"><span id="val-cadence">0</span><span class="stat-unit">RPM</span></div>
+    </div>
+    <div class="top-stat" id="card-power">
+      <div class="stat-label">POWER</div>
+      <div class="stat-value"><span id="val-power">0</span><span class="stat-unit">W</span></div>
+    </div>
+    <div class="top-stat active" id="card-resistance">
+      <div class="stat-label">RESISTANCE</div>
+      <div class="stat-value"><span id="val-resistance">0</span><span class="stat-unit" id="resistance-max">/ 32</span></div>
+    </div>
+  </div>
+
+  <div class="secondary-stats">
+    <div class="sec-stat">
+      <div class="stat-label">TIME</div>
+      <div class="stat-value" id="val-time">00:00</div>
+    </div>
+    <div class="sec-stat">
+      <div class="stat-label">DISTANCE</div>
+      <div class="stat-value"><span id="val-distance">0.0</span><span class="stat-unit">km</span></div>
+    </div>
+    <div class="sec-stat">
+      <div class="stat-label">CALORIES</div>
+      <div class="stat-value"><span id="val-calories">0</span><span class="stat-unit">kcal</span></div>
+    </div>
+  </div>
+
+  <!-- Bike AI Coach — no gate, available immediately -->
+  <div class="coach-panel" id="coach-panel">
+    <div class="coach-setup" id="coach-setup">
+      <div class="coach-setup-header">
+        <h2>AI SPIN COACH</h2>
+        <span class="coach-subtitle">Guided workouts powered by AI</span>
+      </div>
+      <div class="difficulty-row">
+        <button class="diff-btn selected" data-diff="easy" onclick="pickDifficulty('easy')">EASY</button>
+        <button class="diff-btn" data-diff="medium" onclick="pickDifficulty('medium')">MEDIUM</button>
+        <button class="diff-btn" data-diff="hard" onclick="pickDifficulty('hard')">HARD</button>
+      </div>
+      <div class="duration-row">
+        <label>DURATION</label>
+        <select id="workout-duration">
+          <option value="10">10 min</option>
+          <option value="15">15 min</option>
+          <option value="20" selected>20 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">60 min</option>
+        </select>
+      </div>
+      <button class="btn-go" id="btn-start-workout" onclick="startWorkout()">START RIDE</button>
+    </div>
+    <!-- Active coaching -->
+    <div class="coach-active" id="coach-active">
+      <div class="coaching-segment">
+        <span class="segment-name" id="coach-segment">—</span>
+        <span class="segment-count" id="coach-seg-count"></span>
+      </div>
+      <div class="coaching-text" id="coach-text">Generating plan...</div>
+      <div class="coaching-targets">
+        <div class="target-item">
+          <span class="target-label" id="coach-target-r-label">TARGET RESISTANCE</span>
+          <span class="target-value" id="coach-target-r">—</span>
+        </div>
+        <div class="target-item">
+          <span class="target-label" id="coach-target-c-label">TARGET CADENCE</span>
+          <span class="target-value" id="coach-target-c">—</span>
+        </div>
+      </div>
+      <div class="workout-progress-track">
+        <div class="workout-progress-fill" id="workout-progress" style="width: 0%"></div>
+      </div>
+      <button class="btn-stop" onclick="stopWorkout()">END WORKOUT</button>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <button class="btn-sm" onclick="resetRide()">RESET</button>
+    <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
+  </div>
+</div>
+
+<!-- ============ ROWER DASHBOARD ============ -->
+<div id="rower-dashboard">
+  <!-- Support banner — same logic, shared dismiss -->
+  <div class="support-banner hidden" id="rower-support-banner">
+    <span class="support-banner-text">Enjoying PedalSync? <a href="https://buymeacoffee.com/pedalsync" target="_blank" rel="noopener">Support the project</a></span>
+    <button class="support-banner-close" onclick="dismissBanner()">&times;</button>
+  </div>
+  <div class="reconnect-banner hidden">Reconnecting...</div>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>PEDALSYNC</h1>
+      <div class="bike-name" id="rower-name">—</div>
+    </div>
+    <div class="status-dot" id="rower-status-dot"></div>
+  </div>
+
+  <div class="rower-hero">
+    <div class="rower-hero-stat split-stat" id="card-split">
+      <div class="stat-label">SPLIT /500M</div>
+      <div class="stat-value"><span id="val-split">--:--</span></div>
+    </div>
+    <div class="rower-hero-stat" id="card-spm">
+      <div class="stat-label">STROKE RATE</div>
+      <div class="stat-value"><span id="val-spm">0</span><span class="stat-unit">SPM</span></div>
+    </div>
+  </div>
+
+  <div class="rower-hero">
+    <div class="rower-hero-stat" id="card-rower-power">
+      <div class="stat-label">POWER</div>
+      <div class="stat-value"><span id="val-rower-power">0</span><span class="stat-unit">W</span></div>
+    </div>
+    <div class="rower-hero-stat active" id="card-rower-resistance">
+      <div class="stat-label">RESISTANCE</div>
+      <div class="stat-value"><span id="val-rower-resistance">0</span><span class="stat-unit" id="rower-resistance-max">/ 32</span></div>
+    </div>
+  </div>
+
+  <div class="rower-grid">
+    <div class="rower-stat">
+      <div class="stat-label">TIME</div>
+      <div class="stat-value" id="val-rower-time">00:00</div>
+    </div>
+    <div class="rower-stat">
+      <div class="stat-label">DISTANCE</div>
+      <div class="stat-value"><span id="val-rower-distance">0</span><span class="stat-unit">m</span></div>
+    </div>
+    <div class="rower-stat">
+      <div class="stat-label">STROKES</div>
+      <div class="stat-value" id="val-strokes">0</div>
+    </div>
+  </div>
+
+  <div class="rower-grid">
+    <div class="rower-stat">
+      <div class="stat-label">CALORIES</div>
+      <div class="stat-value"><span id="val-rower-calories">0</span><span class="stat-unit">kcal</span></div>
+    </div>
+    <div class="rower-stat">
+      <div class="stat-label">AVG SPLIT</div>
+      <div class="stat-value" id="val-avg-split">--:--</div>
+    </div>
+    <div class="rower-stat">
+      <div class="stat-label">AVG SPM</div>
+      <div class="stat-value" id="val-avg-spm">0</div>
+    </div>
+  </div>
+
+  <!-- Rower AI Coach — no gate, available immediately -->
+  <div class="coach-panel" id="rower-coach-panel">
+    <div class="coach-setup" id="rower-coach-setup">
+      <div class="coach-setup-header">
+        <h2>AI ROW COACH</h2>
+        <span class="coach-subtitle">Guided workouts powered by AI</span>
+      </div>
+      <div class="difficulty-row">
+        <button class="diff-btn selected" data-diff="easy" onclick="pickDifficulty('easy')">EASY</button>
+        <button class="diff-btn" data-diff="medium" onclick="pickDifficulty('medium')">MEDIUM</button>
+        <button class="diff-btn" data-diff="hard" onclick="pickDifficulty('hard')">HARD</button>
+      </div>
+      <div class="duration-row">
+        <label>DURATION</label>
+        <select id="rower-workout-duration">
+          <option value="10">10 min</option>
+          <option value="15">15 min</option>
+          <option value="20" selected>20 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">60 min</option>
+        </select>
+      </div>
+      <button class="btn-go" id="rower-btn-start-workout" onclick="startWorkout()">START ROW</button>
+    </div>
+    <!-- Active coaching -->
+    <div class="coach-active" id="rower-coach-active">
+      <div class="coaching-segment">
+        <span class="segment-name" id="rower-coach-segment">—</span>
+        <span class="segment-count" id="rower-coach-seg-count"></span>
+      </div>
+      <div class="coaching-text" id="rower-coach-text">Generating plan...</div>
+      <div class="coaching-targets">
+        <div class="target-item">
+          <span class="target-label" id="rower-coach-target-r-label">TARGET RESISTANCE</span>
+          <span class="target-value" id="rower-coach-target-r">—</span>
+        </div>
+        <div class="target-item">
+          <span class="target-label" id="rower-coach-target-c-label">TARGET SPM</span>
+          <span class="target-value" id="rower-coach-target-c">—</span>
+        </div>
+      </div>
+      <div class="workout-progress-track">
+        <div class="workout-progress-fill" id="rower-workout-progress" style="width: 0%"></div>
+      </div>
+      <button class="btn-stop" onclick="stopWorkout()">END WORKOUT</button>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <button class="btn-sm" onclick="resetRide()">RESET</button>
+    <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
+  </div>
+</div>
+
+<!-- ============ TREADMILL DASHBOARD ============ -->
+<div id="treadmill-dashboard">
+  <div class="support-banner hidden" id="tread-support-banner">
+    <span class="support-banner-text">Enjoying PedalSync? <a href="https://buymeacoffee.com/pedalsync" target="_blank" rel="noopener">Support the project</a></span>
+    <button class="support-banner-close" onclick="dismissBanner()">&times;</button>
+  </div>
+  <div class="reconnect-banner hidden">Reconnecting...</div>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>PEDALSYNC</h1>
+      <div class="bike-name" id="tread-name">—</div>
+    </div>
+    <div class="status-dot" id="tread-status-dot"></div>
+  </div>
+
+  <div class="tread-unverified">
+    Treadmill support is in preview — metrics may need calibration.
+    Report issues at buymeacoffee.com/pedalsync.
+  </div>
+
+  <div class="tread-hero">
+    <div class="tread-hero-stat" id="card-tread-speed">
+      <div class="stat-label">SPEED</div>
+      <div class="stat-value"><span id="val-tread-speed">0.0</span><span class="stat-unit">MPH</span></div>
+    </div>
+    <div class="tread-hero-stat" id="card-tread-pace">
+      <div class="stat-label">PACE</div>
+      <div class="stat-value"><span id="val-tread-pace">--:--</span><span class="stat-unit">/MI</span></div>
+    </div>
+    <div class="tread-hero-stat active" id="card-tread-incline">
+      <div class="stat-label">INCLINE</div>
+      <div class="stat-value"><span id="val-tread-incline">0</span><span class="stat-unit" id="tread-incline-max">/ 20</span></div>
+    </div>
+  </div>
+
+  <div class="tread-grid">
+    <div class="tread-stat">
+      <div class="stat-label">TIME</div>
+      <div class="stat-value" id="val-tread-time">00:00</div>
+    </div>
+    <div class="tread-stat">
+      <div class="stat-label">DISTANCE</div>
+      <div class="stat-value"><span id="val-tread-distance">0.00</span><span class="stat-unit">mi</span></div>
+    </div>
+    <div class="tread-stat">
+      <div class="stat-label">CALORIES</div>
+      <div class="stat-value"><span id="val-tread-calories">0</span><span class="stat-unit">kcal</span></div>
+    </div>
+  </div>
+
+  <div class="tread-grid">
+    <div class="tread-stat">
+      <div class="stat-label">AVG SPEED</div>
+      <div class="stat-value"><span id="val-tread-avg-speed">0.0</span><span class="stat-unit">MPH</span></div>
+    </div>
+    <div class="tread-stat">
+      <div class="stat-label">AVG PACE</div>
+      <div class="stat-value" id="val-tread-avg-pace">--:--</div>
+    </div>
+    <div class="tread-stat">
+      <div class="stat-label">STEPS</div>
+      <div class="stat-value" id="val-tread-steps">0</div>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <button class="btn-sm" onclick="resetRide()">RESET</button>
+    <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
+  </div>
+</div>
+
+<!-- ============ SCRIPTS (load order matters) ============ -->
+<script src="/js/state.js"></script>
+<script src="/js/diag-capture.js"></script>
+<script src="/js/pwa.js"></script>
+<script src="/js/ble.js"></script>
+<script src="/js/bike-dashboard.js"></script>
+<script src="/js/rower-dashboard.js"></script>
+<script src="/js/treadmill-dashboard.js"></script>
+<script src="/js/export.js"></script>
+<script src="/js/coach.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

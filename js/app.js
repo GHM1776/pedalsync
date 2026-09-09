@@ -1,0 +1,183 @@
+// ============================================================
+// PedalSync — App Init, Main Loop & Router
+// ============================================================
+(function() {
+  var s = PS.state;
+
+  // ---- View Router ----
+  window.showConnectScreen = function() {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('connect-screen').style.display = 'flex';
+    location.hash = 'connect';
+
+    // Check Web Bluetooth support
+    if (!navigator.bluetooth) {
+      document.getElementById('ble-warning').textContent =
+        'Web Bluetooth is not supported in this browser. Use Chrome, Edge, or another Chromium-based browser.';
+      document.querySelector('.btn-connect').disabled = true;
+    }
+
+    // Show install button if prompt is available
+    if (PS.hasInstallPrompt()) {
+      document.getElementById('btn-install').classList.remove('hidden');
+    }
+  };
+
+  // ---- Main Display Loop (200ms) ----
+  window.updateDisplay = function() {
+    if (s.rideActive && s.rideStart > 0) {
+      s.rideElapsed = Date.now() / 1000 - s.rideStart;
+    }
+
+    if (s.equipmentType === 'rower') {
+      updateRowerDisplay();
+    } else if (s.equipmentType === 'treadmill') {
+      updateTreadmillDisplay();
+    } else {
+      updateBikeDisplay();
+    }
+
+    // Track ride completion
+    checkRideCompletion();
+
+    // Record data for export
+    recordDataPoint();
+
+    // Check coach progress (both bike and rower now)
+    if (s.workoutActive) checkCoachProgress();
+
+    // Idle timeout — auto-stop workout if no activity for 5 min
+    if (s.lastNonZeroCadenceTime > 0) {
+      var idleTime = Date.now() / 1000 - s.lastNonZeroCadenceTime;
+      if (s.workoutActive && idleTime >= PS.IDLE_TIMEOUT_WORKOUT) {
+        stopWorkout();
+        showCoaching('Workout auto-stopped — no activity for 5 minutes.', 'TIMEOUT', 100);
+      }
+      if (s.rideActive && idleTime >= PS.IDLE_TIMEOUT_RIDE) {
+        s.rideActive = false;
+      }
+    }
+  };
+
+  // ---- Reset Ride ----
+  window.resetRide = function() {
+    s.rideStart = 0;
+    s.rideElapsed = 0;
+    s.rideActive = false;
+    s.totalDistance = 0;
+    s.totalCalories = 0;
+    s.lastNonZeroCadenceTime = 0;
+    s.rideTracked = false;
+    s.rideCadenceStart = 0;
+    // Rower reset
+    s.rowerSPM = 0;
+    s.rowerStrokes = 0;
+    s.rowerSplitSec = 0;
+    s.rowerDistance = 0;
+    s.rowerCalories = 0;
+    s.rowerPower = 0;
+    s.rowerD1Buffer = null;
+    s.rowerD1Expected = 0;
+    s.rowerSPMSamples = [];
+    s.rowerSplitSamples = [];
+    s.spmSamples = [];
+    // Treadmill reset
+    s.treadSpeed = 0;
+    s.treadIncline = 0;
+    s.treadSteps = 0;
+    s.treadDistanceDevice = 0;
+    s.treadCaloriesDevice = 0;
+    s.treadSpeedSamples = [];
+    // Recording reset
+    s.recordedPoints = [];
+    s.lastRecordTime = 0;
+    s.rideStartDate = null;
+  };
+
+  // ---- Demo Mode ----
+  // Usage: ?demo=bike | ?demo=rower | ?demo=treadmill
+  // Shows dashboard with simulated data for layout/styling testing
+  function checkDemoMode() {
+    var params = new URLSearchParams(window.location.search);
+    var demo = (params.get('demo') || '').toLowerCase();
+    if (!demo) return false;
+
+    var validTypes = { bike: 'bike', rower: 'rower', treadmill: 'treadmill', tread: 'treadmill' };
+    var type = validTypes[demo];
+    if (!type) return false;
+
+    s.equipmentType = type;
+    s.rideActive = true;
+    s.rideStart = Date.now() / 1000;
+    s.rideStartDate = new Date();
+    s.lastNonZeroCadenceTime = Date.now() / 1000;
+
+    // Hide gate, show correct dashboard
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('connect-screen').style.display = 'none';
+
+    if (type === 'rower') {
+      document.getElementById('rower-dashboard').style.display = 'flex';
+      document.getElementById('rower-name').textContent = 'Row-S — DEMO MODE';
+      s.resistance = 5;
+      location.hash = 'rower';
+    } else if (type === 'treadmill') {
+      document.getElementById('treadmill-dashboard').style.display = 'flex';
+      document.getElementById('tread-name').textContent = 'Stride — DEMO MODE';
+      s.treadIncline = 3;
+      location.hash = 'treadmill';
+    } else {
+      document.getElementById('dashboard').style.display = 'flex';
+      document.getElementById('bike-name').textContent = 'EX-5 — DEMO MODE';
+      s.resistance = 14;
+      location.hash = 'bike';
+    }
+
+    // Simulate live data every 200ms
+    s.telemetryInterval = setInterval(function() {
+      var t = (Date.now() / 1000 - s.rideStart);
+      var wave = Math.sin(t / 8);        // slow oscillation
+      var jitter = (Math.random() - 0.5) * 2;
+
+      if (type === 'bike') {
+        s.cadence = Math.round(75 + wave * 15 + jitter);
+        s.resistance = Math.round(14 + Math.sin(t / 20) * 6);
+        s.power = PS.calcPower(s.cadence, s.resistance);
+        s.totalDistance += (s.cadence * 1.7) / (60 * 1000) * 0.2;
+        s.totalCalories += s.power * (0.2 / 3600) * 0.86;
+        s.powerSamples.push(s.power);
+        s.cadenceSamples.push(s.cadence);
+      } else if (type === 'rower') {
+        s.rowerSPM = Math.round(24 + wave * 6 + jitter);
+        s.rowerPower = Math.round(45 + wave * 20 + jitter * 3);
+        s.rowerSplitSec = Math.round(200 - wave * 30);
+        s.rowerStrokes = Math.round(t * 0.4);
+        s.rowerDistance = Math.round(t * 2.5);
+        s.rowerCalories = Math.round(t * 0.12);
+        s.resistance = Math.round(5 + Math.sin(t / 25) * 3);
+        s.rowerSPMSamples.push(s.rowerSPM);
+        s.rowerSplitSamples.push(s.rowerSplitSec);
+      } else if (type === 'treadmill') {
+        s.treadSpeed = Math.round((6.5 + wave * 2 + jitter * 0.1) * 10) / 10;
+        s.treadIncline = Math.round(3 + Math.sin(t / 25) * 3);
+        s.treadSteps = Math.round(t * 2.6);
+        s.totalDistance += s.treadSpeed * (0.2 / 3600);
+        s.totalCalories += (s.treadSpeed * 0.035) * 0.2;
+        s.treadSpeedSamples.push(s.treadSpeed);
+      }
+
+      s.lastNonZeroCadenceTime = Date.now() / 1000;
+    }, 200);
+
+    // Start display loop
+    setInterval(window.updateDisplay, 200);
+    return true;
+  }
+
+  // ---- Init ----
+  window.addEventListener('DOMContentLoaded', function() {
+    getUserId();
+    maybeShowSupportBanner();
+    checkDemoMode();
+  });
+})();

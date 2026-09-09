@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PedalSync — Workout Logs</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --bg: #0a0a0a; --surface: #111; --surface-raised: #1a1a1a; --border: #2a2a2a;
+    --gold: #F2A900; --gold-dim: #8a6200; --green: #00E676; --red: #FF3D00;
+    --cyan: #00BCD4; --text: #e0e0e0; --text-dim: #666;
+    --font-display: 'Barlow Condensed', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-display); min-height: 100vh; }
+  .layout { max-width: 900px; margin: 0 auto; padding: 16px; }
+
+  .header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 16px; }
+  .header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.12em; color: var(--gold); }
+  .header .tag { font-size: 0.75rem; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .auth-bar { display: flex; gap: 8px; margin: 12px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); }
+  .auth-bar input { flex: 1; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 0.85rem; padding: 8px 12px; outline: none; }
+  .auth-bar input:focus { border-color: var(--gold); }
+  .auth-bar button { background: var(--gold); color: #000; border: none; font-family: var(--font-display); font-weight: 700; font-size: 0.85rem; letter-spacing: 0.08em; padding: 8px 20px; cursor: pointer; text-transform: uppercase; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 14px; text-align: center; }
+  .stat-card .num { font-family: var(--font-mono); font-size: 2rem; color: var(--gold); }
+  .stat-card .lbl { font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 4px; }
+
+  .workout-list { background: var(--surface); border: 1px solid var(--border); }
+  .workout-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: center; transition: background 0.1s; }
+  .workout-row:last-child { border-bottom: none; }
+  .workout-row:hover { background: var(--surface-raised); }
+  .workout-meta { display: flex; flex-direction: column; gap: 2px; }
+  .workout-id { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text); }
+  .workout-info { font-size: 0.75rem; color: var(--text-dim); }
+  .workout-type { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.06em; padding: 2px 8px; text-transform: uppercase; background: rgba(242, 169, 0, 0.1); color: var(--gold); border: 1px solid var(--gold-dim); }
+  .workout-coaching { font-family: var(--font-mono); font-size: 0.75rem; color: var(--cyan); }
+  .workout-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; }
+
+  /* Detail view */
+  .detail-back { font-size: 0.85rem; color: var(--gold); cursor: pointer; margin-bottom: 16px; display: inline-block; }
+  .detail-back:hover { text-decoration: underline; }
+
+  .detail-header { background: var(--surface); border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .detail-item .lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 2px; }
+  .detail-item .val { font-size: 0.9rem; color: var(--text); font-weight: 500; }
+
+  .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-dim); margin: 16px 0 8px; font-weight: 600; }
+
+  .plan-table { width: 100%; background: var(--surface); border: 1px solid var(--border); border-collapse: collapse; font-size: 0.8rem; }
+  .plan-table th { background: var(--surface-raised); color: var(--text-dim); font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  .plan-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .plan-table tr:last-child td { border-bottom: none; }
+
+  .coaching-log { background: var(--surface); border: 1px solid var(--border); }
+  .coaching-entry { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .coaching-entry:last-child { border-bottom: none; }
+  .coaching-entry-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .coaching-segment { font-size: 0.85rem; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: 0.06em; }
+  .coaching-time { font-size: 0.72rem; color: var(--text-dim); }
+  .coaching-data { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; font-family: var(--font-mono); font-size: 0.72rem; }
+  .coaching-data .target { color: var(--text-dim); }
+  .coaching-data .actual { color: var(--text); }
+  .coaching-data .match { color: var(--green); }
+  .coaching-data .miss { color: var(--red); }
+  .coaching-text { font-size: 0.9rem; color: var(--text); line-height: 1.5; padding: 8px 12px; background: var(--surface-raised); border-left: 2px solid var(--gold-dim); }
+
+  .hidden { display: none; }
+  .empty { text-align: center; padding: 32px; color: var(--text-dim); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="header">
+    <h1>PEDALSYNC</h1>
+    <span class="tag">Workout Logs</span>
+  </div>
+
+  <div class="auth-bar" id="auth-bar">
+    <input type="password" id="admin-key" placeholder="Admin key">
+    <button onclick="authenticate()">VIEW LOGS</button>
+  </div>
+
+  <div id="main-ui" class="hidden">
+    <div class="stats-row" id="stats-row"></div>
+    <div id="content"></div>
+  </div>
+</div>
+
+<script>
+let adminKey = '';
+let workouts = [];
+
+document.getElementById('admin-key').addEventListener('keydown', e => {
+  if (e.key === 'Enter') authenticate();
+});
+
+async function authenticate() {
+  adminKey = document.getElementById('admin-key').value.trim();
+  if (!adminKey) return;
+  document.getElementById('auth-bar').classList.add('hidden');
+  document.getElementById('main-ui').classList.remove('hidden');
+  loadWorkouts();
+}
+
+async function loadWorkouts() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="empty">Loading...</div>';
+
+  try {
+    const resp = await fetch('/api/workouts', {
+      headers: { 'x-admin-key': adminKey },
+    });
+    if (resp.status === 403) {
+      document.getElementById('main-ui').classList.add('hidden');
+      document.getElementById('auth-bar').classList.remove('hidden');
+      return;
+    }
+    const data = await resp.json();
+    workouts = data.workouts || [];
+    renderStats();
+    renderList();
+  } catch (e) {
+    content.innerHTML = '<div class="empty">Error loading workouts</div>';
+  }
+}
+
+function renderStats() {
+  const total = workouts.length;
+  const today = new Date().toISOString().substring(0, 10);
+  const todayCount = workouts.filter(w => (w.startedAt || '').startsWith(today)).length;
+  const bikes = workouts.filter(w => w.equipmentType === 'bike').length;
+  const rowers = workouts.filter(w => w.equipmentType === 'rower').length;
+  const users = new Set(workouts.map(w => w.userId)).size;
+
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat-card"><div class="num">${total}</div><div class="lbl">Total Workouts</div></div>
+    <div class="stat-card"><div class="num">${todayCount}</div><div class="lbl">Today</div></div>
+    <div class="stat-card"><div class="num">${users}</div><div class="lbl">Unique Users</div></div>
+    <div class="stat-card"><div class="num">${bikes}</div><div class="lbl">Bike</div></div>
+    <div class="stat-card"><div class="num">${rowers}</div><div class="lbl">Rower</div></div>
+  `;
+}
+
+function renderList() {
+  const content = document.getElementById('content');
+  if (workouts.length === 0) {
+    content.innerHTML = '<div class="empty">No workouts logged yet. Data will appear after the next AI coach session.</div>';
+    return;
+  }
+
+  let html = '<div class="workout-list">';
+  for (const w of workouts) {
+    const time = w.startedAt ? new Date(w.startedAt).toLocaleString() : '—';
+    html += `
+      <div class="workout-row" onclick="loadDetail('${w.id}')">
+        <div class="workout-meta">
+          <div class="workout-id">${w.userId || 'ANON'}</div>
+          <div class="workout-info">${w.difficulty} · ${w.duration}min</div>
+        </div>
+        <span class="workout-type">${w.equipmentType}</span>
+        <span class="workout-time">${time}</span>
+      </div>
+    `;
+  }
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+async function loadDetail(workoutId) {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="empty">Loading workout...</div>';
+
+  try {
+    const resp = await fetch('/api/workouts?id=' + encodeURIComponent(workoutId), {
+      headers: { 'x-admin-key': adminKey },
+    });
+    const workout = await resp.json();
+    renderDetail(workout);
+  } catch (e) {
+    content.innerHTML = '<div class="empty">Error loading workout detail</div>';
+  }
+}
+
+function renderDetail(w) {
+  const content = document.getElementById('content');
+  const isRower = w.equipmentType === 'rower';
+
+  let html = '<span class="detail-back" onclick="renderList()">← All workouts</span>';
+
+  // Header
+  html += `<div class="detail-header"><div class="detail-grid">
+    <div class="detail-item"><div class="lbl">User</div><div class="val">${w.userId || 'ANON'}</div></div>
+    <div class="detail-item"><div class="lbl">Equipment</div><div class="val">${w.equipmentType}</div></div>
+    <div class="detail-item"><div class="lbl">Difficulty</div><div class="val">${w.difficulty}</div></div>
+    <div class="detail-item"><div class="lbl">Duration</div><div class="val">${w.duration} min</div></div>
+    <div class="detail-item"><div class="lbl">Started</div><div class="val">${w.startedAt ? new Date(w.startedAt).toLocaleString() : '—'}</div></div>
+    <div class="detail-item"><div class="lbl">Coaching Calls</div><div class="val">${(w.coachingLog || []).length}</div></div>
+  </div></div>`;
+
+  // Plan
+  if (w.plan && w.plan.length) {
+    html += '<div class="section-title">Workout Plan</div>';
+    html += '<table class="plan-table"><thead><tr>';
+    html += '<th>Segment</th><th>Duration</th><th>Resistance</th>';
+    html += isRower ? '<th>SPM</th>' : '<th>Cadence</th>';
+    html += '<th>Coaching</th></tr></thead><tbody>';
+    for (const seg of w.plan) {
+      const dur = seg.duration_sec >= 60 ? Math.round(seg.duration_sec / 60) + 'm' : seg.duration_sec + 's';
+      const rate = isRower
+        ? (seg.target_spm_min + '-' + seg.target_spm_max)
+        : (seg.target_cadence_min + '-' + seg.target_cadence_max);
+      html += `<tr>
+        <td>${seg.name}</td>
+        <td>${dur}</td>
+        <td>${seg.target_resistance_min}-${seg.target_resistance_max}</td>
+        <td>${rate}</td>
+        <td style="color:var(--text-dim);font-size:0.75rem">${seg.coaching_text || ''}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Coaching log
+  const log = w.coachingLog || [];
+  if (log.length > 0) {
+    html += '<div class="section-title">Coaching Log (' + log.length + ' calls)</div>';
+    html += '<div class="coaching-log">';
+    for (const entry of log) {
+      const time = entry.ts ? new Date(entry.ts).toLocaleTimeString() : '—';
+
+      html += '<div class="coaching-entry">';
+      html += `<div class="coaching-entry-header">
+        <span class="coaching-segment">${entry.segment || '—'}</span>
+        <span class="coaching-time">${time} · ${entry.elapsed || 0}min in · ${entry.remaining || 0}min left</span>
+      </div>`;
+
+      // Targets vs actuals
+      html += '<div class="coaching-data">';
+      if (entry.targets) {
+        if (entry.targets.resistance) html += `<span class="target">R target: ${entry.targets.resistance}</span>`;
+        if (entry.targets.cadence) html += `<span class="target">C target: ${entry.targets.cadence}</span>`;
+        if (entry.targets.spm) html += `<span class="target">SPM target: ${entry.targets.spm}</span>`;
+      }
+      if (entry.actuals) {
+        if (entry.actuals.resistance !== undefined) html += `<span class="actual">R actual: ${entry.actuals.resistance}</span>`;
+        if (entry.actuals.cadence !== undefined) html += `<span class="actual">C actual: ${entry.actuals.cadence}</span>`;
+        if (entry.actuals.spm !== undefined) html += `<span class="actual">SPM actual: ${entry.actuals.spm}</span>`;
+        if (entry.actuals.power !== undefined) html += `<span class="actual">Power: ${entry.actuals.power}W</span>`;
+        if (entry.actuals.split) html += `<span class="actual">Split: ${entry.actuals.split}</span>`;
+      }
+      if (entry.averages) {
+        if (entry.averages.power) html += `<span class="actual">Avg P: ${entry.averages.power}W</span>`;
+        if (entry.averages.cadence) html += `<span class="actual">Avg C: ${entry.averages.cadence}</span>`;
+        if (entry.averages.spm) html += `<span class="actual">Avg SPM: ${entry.averages.spm}</span>`;
+      }
+      html += '</div>';
+
+      // What the coach said
+      if (entry.coaching) {
+        html += `<div class="coaching-text">${entry.coaching}</div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="section-title">Coaching Log</div>';
+    html += '<div class="empty">No adaptive coaching calls recorded. Workout may have ended before the first coaching interval.</div>';
+  }
+
+  content.innerHTML = html;
+}
+</script>
+</body>
+</html>

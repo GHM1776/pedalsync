@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PedalSync — Control Panel</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --bg: #0a0a0a; --surface: #111; --surface-raised: #1a1a1a; --border: #2a2a2a;
+    --gold: #F2A900; --gold-dim: #8a6200; --green: #00E676; --red: #FF3D00;
+    --cyan: #00BCD4; --text: #e0e0e0; --text-dim: #666;
+    --font-display: 'Barlow Condensed', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-display); min-height: 100vh; }
+
+  .layout { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  /* Header */
+  .header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 4px; }
+  .header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.12em; color: var(--gold); }
+  .header .tag { font-size: 0.75rem; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* Auth bar */
+  .auth-bar {
+    display: flex; gap: 8px; margin: 12px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border);
+  }
+  .auth-bar input {
+    flex: 1; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font-mono); font-size: 0.85rem; padding: 8px 12px; outline: none;
+  }
+  .auth-bar input:focus { border-color: var(--gold); }
+  .auth-bar button {
+    background: var(--gold); color: #000; border: none; font-family: var(--font-display);
+    font-weight: 700; font-size: 0.85rem; letter-spacing: 0.08em; padding: 8px 20px;
+    cursor: pointer; text-transform: uppercase;
+  }
+
+  /* Status strip */
+  .relay-status {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px;
+  }
+  .relay-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .relay-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .relay-info { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); }
+  .relay-bike { color: var(--gold); }
+
+  /* Two columns */
+  .columns { display: grid; grid-template-columns: 340px 1fr; gap: 12px; }
+  @media (max-width: 768px) { .columns { grid-template-columns: 1fr; } }
+
+  /* Command panel */
+  .cmd-panel { background: var(--surface); border: 1px solid var(--border); padding: 16px; }
+  .cmd-panel h2 { font-size: 0.9rem; letter-spacing: 0.12em; color: var(--gold); text-transform: uppercase; margin-bottom: 12px; }
+  .cmd-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .cmd-input {
+    flex: 1; background: var(--surface-raised); border: 1px solid var(--border); color: var(--gold);
+    font-family: var(--font-mono); font-size: 1rem; padding: 10px 12px; outline: none;
+    letter-spacing: 0.15em; text-transform: uppercase;
+  }
+  .cmd-input::placeholder { color: var(--text-dim); text-transform: none; letter-spacing: 0.05em; }
+  .cmd-input:focus { border-color: var(--gold); }
+  .cmd-send {
+    background: var(--gold); color: #000; border: none; font-family: var(--font-display);
+    font-weight: 700; font-size: 0.9rem; letter-spacing: 0.08em; padding: 10px 20px;
+    cursor: pointer; text-transform: uppercase; white-space: nowrap;
+  }
+  .cmd-send:active { transform: scale(0.97); }
+  .cmd-send:disabled { background: var(--text-dim); cursor: not-allowed; }
+
+  .quick-cmds { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .quick-btn {
+    background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-dim);
+    font-family: var(--font-mono); font-size: 0.7rem; padding: 8px 10px; cursor: pointer;
+  }
+  .quick-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+  .quick-label { font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 6px; }
+
+  .cmd-history { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim); }
+  .cmd-history div { padding: 3px 0; border-bottom: 1px solid var(--border); }
+
+  /* Sequence runner */
+  .seq-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .seq-btn {
+    width: 100%; background: var(--surface-raised); border: 1px solid var(--gold);
+    color: var(--gold); font-family: var(--font-display); font-weight: 700; font-size: 0.9rem;
+    letter-spacing: 0.08em; padding: 12px; cursor: pointer; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .seq-btn:hover { background: rgba(242, 169, 0, 0.08); }
+  .seq-desc { font-size: 0.7rem; color: var(--text-dim); line-height: 1.5; }
+
+  /* Feed panel */
+  .feed-panel { background: var(--surface); border: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; }
+  .feed-panel h2 { font-size: 0.9rem; letter-spacing: 0.12em; color: var(--gold); text-transform: uppercase; margin-bottom: 8px; }
+  .feed-controls { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .feed-controls label { font-size: 0.75rem; color: var(--text-dim); }
+  .toggle { appearance: none; width: 36px; height: 18px; background: var(--border); border-radius: 9px;
+    position: relative; cursor: pointer; outline: none; transition: background 0.2s; }
+  .toggle::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--text-dim); top: 2px; left: 2px; transition: all 0.2s; }
+  .toggle:checked { background: var(--gold-dim); }
+  .toggle:checked::before { left: 20px; background: var(--gold); }
+  .feed-count { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); margin-left: auto; }
+
+  .feed-box {
+    flex: 1; min-height: 500px; max-height: 75vh; overflow-y: auto;
+    font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.6;
+    background: var(--bg); padding: 10px; border: 1px solid var(--border);
+  }
+  .f-row { border-bottom: 1px solid #1a1a1a; padding: 3px 0; }
+  .f-ts { color: var(--text-dim); }
+  .f-type { display: inline-block; width: 36px; text-align: center; font-size: 0.65rem; font-weight: 700; padding: 1px 4px; margin: 0 4px; }
+  .f-type.notification { background: #002b1e; color: var(--green); }
+  .f-type.write_result { background: #2b1d00; color: var(--gold); }
+  .f-type.error { background: #2b0000; color: var(--red); }
+  .f-type.info { background: #1a1a1a; color: var(--text-dim); }
+  .f-handle { color: var(--cyan); }
+  .f-hex { color: var(--text); word-break: break-all; }
+  .f-len { color: var(--text-dim); }
+  .f-note { color: var(--text-dim); font-style: italic; }
+
+  /* Clear button */
+  .btn-clear {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    font-family: var(--font-display); font-size: 0.7rem; letter-spacing: 0.08em;
+    padding: 6px 12px; cursor: pointer; text-transform: uppercase;
+  }
+  .btn-clear:hover { border-color: var(--red); color: var(--red); }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="header">
+    <h1>PEDALSYNC</h1>
+    <span class="tag">BLE Control Panel</span>
+  </div>
+
+  <!-- Auth -->
+  <div class="auth-bar" id="auth-bar">
+    <input type="password" id="admin-key" placeholder="Admin key">
+    <button onclick="authenticate()">CONNECT</button>
+  </div>
+
+  <!-- Main UI (hidden until auth) -->
+  <div id="main-ui" class="hidden">
+
+    <!-- Relay status -->
+    <div class="relay-status">
+      <div class="relay-dot" id="relay-dot"></div>
+      <div class="relay-info">
+        Relay: <span id="relay-state">unknown</span>
+        <span class="relay-bike" id="relay-bike"></span>
+      </div>
+      <div style="margin-left: auto;">
+        <button class="btn-clear" onclick="clearAll()">CLEAR DATA</button>
+      </div>
+    </div>
+
+    <div class="columns">
+      <!-- Left: Command panel -->
+      <div class="cmd-panel">
+        <h2>Send Command</h2>
+        <div class="cmd-input-row">
+          <input class="cmd-input" id="hex-input" placeholder="CC 00 00" maxlength="60">
+          <button class="cmd-send" id="btn-send" onclick="sendCommand()">SEND</button>
+        </div>
+
+        <div class="quick-label">Quick Commands</div>
+        <div class="quick-cmds">
+          <button class="quick-btn" onclick="setHex('CC 00 00')">CC 00 00<br><span style="font-size:0.6rem;color:var(--text-dim)">init?</span></button>
+          <button class="quick-btn" onclick="setHex('D0 00 00')">D0 00 00<br><span style="font-size:0.6rem;color:var(--text-dim)">enable?</span></button>
+          <button class="quick-btn" onclick="setHex('07 00 00')">07 00 00<br><span style="font-size:0.6rem;color:var(--text-dim)">status?</span></button>
+          <button class="quick-btn" onclick="setHex('F0 B0 01 01 A2')">F0 B0 01 01 A2<br><span style="font-size:0.6rem;color:var(--text-dim)">old enable</span></button>
+        </div>
+
+        <div class="seq-section">
+          <div class="quick-label">Sequences</div>
+          <button class="seq-btn" onclick="runSequence(['CC 00 00', 'D0 00 00'])">
+            RUN NEW AUTH SEQUENCE
+          </button>
+          <div class="seq-desc">Sends CC 00 00, waits 2s, sends D0 00 00</div>
+
+          <button class="seq-btn" style="margin-top:8px" onclick="runSequence(['CC 00 00', 'D0 00 00', 'F0 B0 01 01 A2'])">
+            NEW AUTH + OLD ENABLE
+          </button>
+          <div class="seq-desc">CC 00 00 → D0 00 00 → F0 B0 01 01 A2 (2s gaps)</div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <div class="quick-label">Command History</div>
+          <div class="cmd-history" id="cmd-history"></div>
+        </div>
+      </div>
+
+      <!-- Right: Live feed -->
+      <div class="feed-panel">
+        <div style="display:flex; align-items:baseline; gap:12px;">
+          <h2>Live Feed</h2>
+          <div class="feed-count" id="feed-count">0 entries</div>
+        </div>
+        <div class="feed-controls">
+          <input type="checkbox" class="toggle" id="auto-scroll" checked>
+          <label for="auto-scroll">Auto-scroll</label>
+          <input type="checkbox" class="toggle" id="show-notifs" checked>
+          <label for="show-notifs">Notifications</label>
+          <input type="checkbox" class="toggle" id="show-writes" checked>
+          <label for="show-writes">Writes</label>
+        </div>
+        <div class="feed-box" id="feed"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin + '/api/diag';
+let adminKey = '';
+let pollTimer = null;
+let lastTs = 0;
+let totalEntries = 0;
+let cmdHistoryList = [];
+
+function authenticate() {
+  adminKey = document.getElementById('admin-key').value.trim();
+  if (!adminKey) return;
+  document.getElementById('auth-bar').classList.add('hidden');
+  document.getElementById('main-ui').classList.remove('hidden');
+  startFeedPoll();
+}
+
+// Allow enter key on admin input
+document.getElementById('admin-key').addEventListener('keydown', e => {
+  if (e.key === 'Enter') authenticate();
+});
+
+// ---- Send command ----
+function setHex(hex) {
+  document.getElementById('hex-input').value = hex;
+}
+
+async function sendCommand() {
+  const hex = document.getElementById('hex-input').value.trim();
+  if (!hex) return;
+
+  document.getElementById('btn-send').disabled = true;
+
+  try {
+    const resp = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'send_cmd', admin_key: adminKey, hex }),
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      addCmdHistory('→ ' + hex.toUpperCase());
+    } else {
+      addCmdHistory('✗ ' + (data.error || 'failed'));
+    }
+  } catch(e) {
+    addCmdHistory('✗ network error');
+  }
+
+  document.getElementById('btn-send').disabled = false;
+}
+
+document.getElementById('hex-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendCommand();
+});
+
+async function runSequence(cmds) {
+  for (let i = 0; i < cmds.length; i++) {
+    document.getElementById('hex-input').value = cmds[i];
+    await sendCommand();
+    if (i < cmds.length - 1) {
+      addCmdHistory('⏱ waiting 2s...');
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  addCmdHistory('✓ sequence complete');
+}
+
+function addCmdHistory(msg) {
+  const el = document.getElementById('cmd-history');
+  cmdHistoryList.unshift(msg);
+  if (cmdHistoryList.length > 20) cmdHistoryList.pop();
+  el.innerHTML = cmdHistoryList.map(m => `<div>${m}</div>`).join('');
+}
+
+// ---- Live feed polling ----
+function startFeedPoll() {
+  pollTimer = setInterval(fetchFeed, 2000);
+  fetchFeed();
+}
+
+async function fetchFeed() {
+  try {
+    const resp = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_feed', admin_key: adminKey, since: lastTs }),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      // Auth failed
+      clearInterval(pollTimer);
+      document.getElementById('main-ui').classList.add('hidden');
+      document.getElementById('auth-bar').classList.remove('hidden');
+      return;
+    }
+
+    // Update relay status
+    if (data.status) {
+      const dot = document.getElementById('relay-dot');
+      const stateEl = document.getElementById('relay-state');
+      const bikeEl = document.getElementById('relay-bike');
+
+      const isOn = data.status.state === 'connected';
+      dot.className = 'relay-dot' + (isOn ? ' on' : '');
+      stateEl.textContent = data.status.state || 'unknown';
+      bikeEl.textContent = data.status.bike ? ' — ' + data.status.bike : '';
+    }
+
+    // Render new results
+    if (data.results && data.results.length) {
+      const feed = document.getElementById('feed');
+      const showNotifs = document.getElementById('show-notifs').checked;
+      const showWrites = document.getElementById('show-writes').checked;
+
+      data.results.forEach(r => {
+        if (r.type === 'notification' && !showNotifs) return;
+        if (r.type === 'write_result' && !showWrites) return;
+
+        const row = document.createElement('div');
+        row.className = 'f-row';
+
+        const ts = new Date(r.ts).toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 1 });
+        const typeLabel = r.type === 'notification' ? 'RX' : r.type === 'write_result' ? 'TX' : r.type === 'error' ? 'ERR' : 'NFO';
+        const typeClass = r.type || 'info';
+
+        let content = `<span class="f-ts">${ts}</span>`;
+        content += `<span class="f-type ${typeClass}">${typeLabel}</span>`;
+        if (r.handle) content += `<span class="f-handle">[${r.handle}]</span> `;
+        if (r.len) content += `<span class="f-len">(${r.len}B)</span> `;
+        if (r.hex) content += `<span class="f-hex">${r.hex}</span>`;
+        if (r.note) content += ` <span class="f-note">${r.note}</span>`;
+
+        row.innerHTML = content;
+        feed.appendChild(row);
+        totalEntries++;
+        lastTs = Math.max(lastTs, r.ts);
+      });
+
+      document.getElementById('feed-count').textContent = totalEntries + ' entries';
+
+      if (document.getElementById('auto-scroll').checked) {
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+  } catch(e) {
+    // silent
+  }
+}
+
+// ---- Clear ----
+async function clearAll() {
+  if (!confirm('Clear all diagnostic data?')) return;
+  try {
+    await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'clear', admin_key: adminKey }),
+    });
+    document.getElementById('feed').innerHTML = '';
+    totalEntries = 0;
+    lastTs = 0;
+    document.getElementById('feed-count').textContent = '0 entries';
+  } catch(e) {}
+}
+</script>
+</body>
+</html>
