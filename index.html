@@ -32,7 +32,7 @@
     <ul class="gate-features">
       <li><span>▸</span> Real-time cadence, resistance &amp; power</li>
       <li><span>▸</span> AI-powered workout coach</li>
-      <li><span>▸</span> Works on locked firmware (v3.12+)</li>
+      <li><span>▸</span> Auto-unlocks locked firmware (v3.12+, Connect &amp; Connect Sport included)</li>
       <li><span>▸</span> Export workouts to Strava &amp; Garmin</li>
       <li><span>▸</span> No app install — runs in Chrome</li>
     </ul>
@@ -44,7 +44,7 @@
       <div class="equip-card">
         <div class="equip-status live">LIVE</div>
         <div class="equip-name">Bikes</div>
-        <div class="equip-models">EX-3 · EX-5 · EX-5S · EX-7S · GT+ · Connect Sport</div>
+        <div class="equip-models">EX-3 · EX-4 · EX-5 · EX-5S · EX-7S · GT+ · Connect · Connect Sport</div>
       </div>
       <div class="equip-card">
         <div class="equip-status live">LIVE</div>
@@ -52,9 +52,9 @@
         <div class="equip-models">Row-S · Row-7S · Row Sport · Row-4S</div>
       </div>
       <div class="equip-card">
-        <div class="equip-status coming">COMING SOON</div>
+        <div class="equip-status coming">PREVIEW</div>
         <div class="equip-name">Treadmills</div>
-        <div class="equip-models">Stride — looking for testers</div>
+        <div class="equip-models">Stride — live in preview, testers wanted</div>
       </div>
     </div>
   </div>
@@ -63,9 +63,19 @@
     <button class="btn-primary" onclick="showConnectScreen()" style="letter-spacing:0.12em">CONNECT YOUR EQUIPMENT</button>
   </div>
 
-  <div class="gate-note">
-    Works in Chrome, Edge, Brave, Opera &amp; Samsung Internet on Android, Windows, Mac &amp; Linux<br>
-    Not supported on iPhone or iPad · Not supported in Safari or Firefox on any platform
+  <div class="gate-note" id="gate-note">
+    Needs Web Bluetooth — use Chrome or Edge on Android, Windows, Mac, or ChromeOS.<br>
+    iPhone/iPad and Firefox don't support it.
+  </div>
+
+  <div class="landing-section">
+    <div class="landing-label">SOMETHING NOT WORKING?</div>
+    <div class="landing-help">
+      Email us and we'll dig in. Three things let us trace your exact session:
+      your <strong>equipment model</strong> (e.g. EX-5S), <strong>what the status line said</strong>
+      after you tapped CONNECT, and <strong>whether you saw &ldquo;unlocking&hellip;&rdquo;</strong>.
+    </div>
+    <a class="btn-contact support-mail" href="mailto:updates@pedalsync.app">Report a problem</a>
   </div>
 
   <div class="landing-section">
@@ -99,6 +109,12 @@
   </div>
 
   <div class="ble-warning" id="ble-warning"></div>
+
+  <div class="connect-help">
+    Trouble connecting? Email <a class="support-mail" href="mailto:updates@pedalsync.app">updates@pedalsync.app</a>
+    with your equipment model, what the status line above said, and whether you
+    saw &ldquo;unlocking&hellip;&rdquo; — that's everything we need to trace your session.
+  </div>
 </div>
 
 <!-- ============ BIKE DASHBOARD ============ -->
@@ -347,7 +363,8 @@
 
   <div class="tread-unverified">
     Treadmill support is in preview — metrics may need calibration.
-    Report issues at buymeacoffee.com/pedalsync.
+    Spot a wrong number? Email <a class="support-mail" href="mailto:updates@pedalsync.app">updates@pedalsync.app</a>
+    with your model and what the console showed.
   </div>
 
   <div class="tread-hero">

@@ -13,7 +13,8 @@
     // Check Web Bluetooth support
     if (!navigator.bluetooth) {
       document.getElementById('ble-warning').textContent =
-        'Web Bluetooth is not supported in this browser. Use Chrome, Edge, or another Chromium-based browser.';
+        'This browser can\'t connect — iPhone/iPad and Firefox don\'t support Web Bluetooth. ' +
+        'Use Chrome or Edge on Android, Windows, Mac, or ChromeOS.';
       document.querySelector('.btn-connect').disabled = true;
     }
 
@@ -174,10 +175,41 @@
     return true;
   }
 
+  // ---- Browser Support Note + Support Mail Prefill ----
+  function initSupportUI() {
+    // Landing note reflects whether THIS browser can actually connect
+    var note = document.getElementById('gate-note');
+    if (note) {
+      if (navigator.bluetooth) {
+        note.textContent = '✓ This browser supports Bluetooth — you\'re good to go.';
+        note.classList.add('ok');
+      } else {
+        note.textContent = 'This browser can\'t connect — iPhone/iPad and Firefox don\'t support ' +
+          'Web Bluetooth. Use Chrome or Edge on Android, Windows, Mac, or ChromeOS.';
+      }
+    }
+
+    // Prefill every support mailto with the questions we need answered, plus the
+    // Pulse session id so a report can be joined to its debug capture
+    var sid = '';
+    try { sid = sessionStorage.getItem('__p') || ''; } catch (e) { /* private mode */ }
+    var body = 'Equipment model (e.g. EX-5S):\n\n' +
+      'What the status line said after you tapped CONNECT:\n\n' +
+      'Did you see "unlocking..." (yes / no):\n\n' +
+      'What happened next:\n\n' +
+      '--\n' +
+      'Session: ' + sid + '  (please leave this line — it links your report to the debug log)';
+    var href = 'mailto:updates@pedalsync.app' +
+      '?subject=' + encodeURIComponent('PedalSync problem report') +
+      '&body=' + encodeURIComponent(body);
+    document.querySelectorAll('a.support-mail').forEach(function(a) { a.href = href; });
+  }
+
   // ---- Init ----
   window.addEventListener('DOMContentLoaded', function() {
     getUserId();
     maybeShowSupportBanner();
+    initSupportUI();
     checkDemoMode();
   });
 })();

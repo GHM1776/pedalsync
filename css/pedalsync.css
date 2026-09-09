@@ -111,8 +111,10 @@ body {
   color: var(--text-dim);
   text-align: center;
   margin-top: 24px;
+  margin-bottom: 24px;
   line-height: 1.8;
 }
+.gate-note.ok { color: var(--green); }
 .gate-features {
   list-style: none;
   text-align: center;
@@ -274,6 +276,14 @@ body {
   line-height: 1.5;
   margin-top: 24px;
 }
+.connect-help {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  max-width: 320px;
+  line-height: 1.6;
+  margin-top: 16px;
+}
+.connect-help a { color: var(--gold); text-decoration: none; }
 .connect-divider {
   width: 100%;
   max-width: 320px;
@@ -627,6 +637,7 @@ body {
   letter-spacing: 0.04em;
   line-height: 1.5;
 }
+.tread-unverified a { color: var(--gold); text-decoration: none; }
 
 
 /* ============================================================
