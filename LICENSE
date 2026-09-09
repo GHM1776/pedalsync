@@ -1,0 +1,41 @@
+PedalSync Proprietary License
+
+Copyright (c) 2026 Intrepid Endeavors LLC. All rights reserved.
+
+This source code is made publicly viewable for transparency, portfolio, and
+reference purposes only. It is NOT open source, and no rights are granted by
+its publication.
+
+1. Grant. No license or right — express, implied, by estoppel, or otherwise —
+   is granted to any person or entity other than the copyright holder. You may
+   view the code in this repository. Nothing further is permitted.
+
+2. Restrictions. Without prior written permission from the copyright holder,
+   you may NOT:
+   (a) use, execute, deploy, or host this software or any part of it;
+   (b) copy, reproduce, or redistribute the code in any form or medium;
+   (c) modify the code or create derivative works based on it;
+   (d) sell, sublicense, rent, lease, or otherwise commercialize the code or
+       any derivative of it; or
+   (e) remove or alter this notice.
+
+3. Commercial rights. All commercial rights in and to this software —
+   including the exclusive right to monetize, license, sell, or offer it as a
+   service — are reserved solely to the copyright holder.
+
+4. Trademarks. "PedalSync" and associated branding may not be used without
+   written permission. Echelon and related marks are trademarks of their
+   respective owners; this project is independent and is not affiliated with,
+   endorsed by, or supported by Echelon Fitness.
+
+5. Contributions. This repository does not accept contributions. Any material
+   submitted anyway (pull requests, patches, suggestions) may be used, or not
+   used, by the copyright holder without restriction or obligation.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN
+   NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+   OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+7. Reservation. All rights not expressly granted above are reserved.
