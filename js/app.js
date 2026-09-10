@@ -99,6 +99,7 @@
 
   // ---- Reset Ride ----
   window.resetRide = function() {
+    if (PS.resetRideSummaryFlag) PS.resetRideSummaryFlag();
     s.rideStart = 0;
     s.rideElapsed = 0;
     s.rideActive = false;
@@ -213,7 +214,8 @@
   }
 
   // ---- Browser Support Note + Support Mail Prefill ----
-  function initSupportUI() {
+  // Also called from connectBike() after model detection so the equipment line fills in.
+  window.initSupportUI = function() {
     // Landing note reflects whether THIS browser can actually connect
     var note = document.getElementById('gate-note');
     if (note) {
@@ -227,20 +229,36 @@
     }
 
     // Prefill every support mailto with the questions we need answered, plus the
-    // Pulse session id so a report can be joined to its debug capture
+    // ids that join a report to its debug capture. The Pulse session id rotates
+    // per tab/PWA launch; ps_uid in localStorage is the stable one.
     var sid = '';
     try { sid = sessionStorage.getItem('__p') || ''; } catch (e) { /* private mode */ }
+    var uid = '';
+    try { uid = localStorage.getItem('ps_uid') || ''; } catch (e) { /* private mode */ }
+    var equip = (s.bleDevice && s.bleDevice.name)
+      ? 'Last equipment: ' + s.bleDevice.name + ' (' + (s.bikeModel || 'unknown model') + ')\n'
+      : '';
     var body = 'Equipment model (e.g. EX-5S):\n\n' +
       'What the status line said after you tapped CONNECT:\n\n' +
       'Did you see "unlocking..." (yes / no):\n\n' +
       'What happened next:\n\n' +
       '--\n' +
-      'Session: ' + sid + '  (please leave this line — it links your report to the debug log)';
+      'Device: ' + uid + '\n' +
+      equip +
+      'Session: ' + sid + '  (please leave these lines — they link your report to the debug log)';
     var href = 'mailto:updates@pedalsync.app' +
       '?subject=' + encodeURIComponent('PedalSync problem report') +
       '&body=' + encodeURIComponent(body);
-    document.querySelectorAll('a.support-mail').forEach(function(a) { a.href = href; });
-  }
+    document.querySelectorAll('a.support-mail').forEach(function(a) {
+      a.href = href;
+      if (!a.dataset.psClick) {
+        a.dataset.psClick = '1';
+        a.addEventListener('click', function() {
+          if (window.__pulse) window.__pulse('support_click', a.closest('#connect-trouble') ? 'trouble' : 'banner');
+        });
+      }
+    });
+  };
 
   // ---- Init ----
   window.addEventListener('DOMContentLoaded', function() {

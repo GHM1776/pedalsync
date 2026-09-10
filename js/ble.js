@@ -10,6 +10,9 @@
   var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // backoff between attempts
   var RECONNECT_WINDOW_MS = 60000;  // wall-clock budget — hard-fail after this
   var reconnectDeadline = 0;
+  var rideSummaryEmitted = false;   // one ride_complete per connection
+  var connectInFlight = false;      // CONNECT double-tap guard
+  var hiddenAt = 0;                 // visibilitychange bookkeeping
 
   // ---- Silent Debug Logging ----
   // Sends debug events to Pulse — invisible to the user, visible in session timeline
@@ -48,10 +51,51 @@
   }
 
   document.addEventListener('visibilitychange', function() {
-    if (document.visibilityState === 'visible' && s.bleDevice && s.bleDevice.gatt.connected) {
-      acquireWakeLock();
+    var connected = !!(s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected);
+    // Only report past the landing gate — bounces off the landing page aren't signal.
+    // Packet gaps mid-ride are almost always the phone leaving the tab; this proves it.
+    var gate = document.getElementById('gate');
+    var pastGate = !!(gate && gate.style.display === 'none');
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now();
+      if (pastGate && window.__pulse) window.__pulse('visibility', 'hidden:' + (connected ? 'connected' : 'idle'));
+    } else if (document.visibilityState === 'visible') {
+      if (pastGate && window.__pulse) {
+        var away = hiddenAt ? Math.round((Date.now() - hiddenAt) / 1000) : 0;
+        window.__pulse('visibility', 'visible:' + away + 's:' + (connected ? 'connected' : 'idle'));
+      }
+      if (connected) acquireWakeLock();
     }
   });
+
+  // ---- Optional A0 keepalive poll (only when PS.ECHELON_FULL_INIT) ----
+  var a0PollTimer = null;
+  var a0Counter = 0;
+  function startA0Poll(writeChar) {
+    stopA0Poll();
+    a0Counter = 0;
+    a0PollTimer = setInterval(function() {
+      if (!s.bleDevice || !s.bleDevice.gatt || !s.bleDevice.gatt.connected) { stopA0Poll(); return; }
+      var pkt = PS.cmdPollA0(a0Counter++);
+      writeChar.writeValue(pkt).then(function() {
+        // Log the first few and then one a minute — every 2s forever would bloat the diag snapshot
+        if (window.PSDiag && (a0Counter <= 3 || a0Counter % 30 === 0)) PSDiag.write('poll_a0', pkt, true);
+      }).catch(function(e) {
+        debug('A0 poll write failed', e.message);
+        stopA0Poll();
+      });
+    }, PS.A0_POLL_MS);
+  }
+  function stopA0Poll() {
+    if (a0PollTimer) { clearInterval(a0PollTimer); a0PollTimer = null; }
+  }
+
+  // ---- "No pedal motion" hint (bike dashboard) ----
+  function hideNoCadenceHint() {
+    var el = document.getElementById('no-cadence-hint');
+    if (el) el.classList.add('hidden');
+  }
+  window.hideNoCadenceHint = hideNoCadenceHint;
 
   // ---- Reconnect Banner ----
   function showReconnectBanner(msg, showRetry) {
@@ -107,6 +151,10 @@
     try {
       await dataChar.startNotifications();
       debug('F4 notifications subscribed');
+      // A previous leg on this same characteristic (double-tap, reconnect) must not
+      // leave stacked listeners — that doubled distance/calories in the field
+      dataChar.removeEventListener('characteristicvaluechanged', diagTap);
+      dataChar.removeEventListener('characteristicvaluechanged', onBLEData);
       dataChar.addEventListener('characteristicvaluechanged', diagTap);
       if (window.PSDiag) PSDiag.phase('f4_subscribed');
     } catch(e) {
@@ -128,6 +176,8 @@
     try {
       var notify1 = await service.getCharacteristic(PS.ECH_NOTIFY1);
       await notify1.startNotifications();
+      notify1.removeEventListener('characteristicvaluechanged', diagTap);
+      notify1.removeEventListener('characteristicvaluechanged', onBLEData);
       notify1.addEventListener('characteristicvaluechanged', diagTap);
       notify1.addEventListener('characteristicvaluechanged', onBLEData);
       debug('F3 notifications subscribed');
@@ -136,9 +186,27 @@
 
     // Enable data streaming
     try {
-      await writeChar.writeValue(PS.CMD_ENABLE);
-      debug('CMD_ENABLE sent');
-      if (window.PSDiag) PSDiag.write('cmd_enable', PS.CMD_ENABLE, true);
+      if (PS.ECHELON_FULL_INIT) {
+        // Mirror the official app's init chatter (A1 x4, A3, A1, B0), 50ms apart.
+        // B0 goes last so PSDiag's 'cmd_enable' write still arms the watchdog.
+        var seq = [
+          ['init_a1', PS.CMD_INIT_A1], ['init_a1', PS.CMD_INIT_A1],
+          ['init_a1', PS.CMD_INIT_A1], ['init_a1', PS.CMD_INIT_A1],
+          ['init_a3', PS.CMD_INIT_A3], ['init_a1', PS.CMD_INIT_A1],
+          ['cmd_enable', PS.CMD_ENABLE],
+        ];
+        for (var wi = 0; wi < seq.length; wi++) {
+          await writeChar.writeValue(seq[wi][1]);
+          if (window.PSDiag) PSDiag.write(seq[wi][0], seq[wi][1], true);
+          await new Promise(function(r) { setTimeout(r, 50); });
+        }
+        debug('Full init sequence sent (A1x4, A3, A1, B0)');
+        startA0Poll(writeChar);
+      } else {
+        await writeChar.writeValue(PS.CMD_ENABLE);
+        debug('CMD_ENABLE sent');
+        if (window.PSDiag) PSDiag.write('cmd_enable', PS.CMD_ENABLE, true);
+      }
     } catch(e) {
       debug('CMD_ENABLE write failed', e.message);
       if (window.PSDiag) PSDiag.write('cmd_enable', PS.CMD_ENABLE, false, e);
@@ -147,12 +215,26 @@
 
     s.connectedAt = Date.now() / 1000;
     s.autoDisconnected = false;
+    rideSummaryEmitted = false;  // new connection = a new ride to summarize
+    s.lastRevCount = 0; s.revStaticSince = 0;
+    s.d2Count = 0; s.lastD2Value = -1; s.d2ChangedSinceConnect = false; s.noCadenceFired = false;
+    hideNoCadenceHint();
 
     return { writeChar: writeChar, dataChar: dataChar };
   }
 
   // ---- Connect (initial, user-initiated) ----
   window.connectBike = async function() {
+    // A second tap during "connecting…" used to start an overlapping leg on the
+    // same device: doubled listeners (2x distance), doubled disconnect events.
+    if (connectInFlight) {
+      if (window.__pulse) window.__pulse('connect_click', 'ignored:inflight');
+      return;
+    }
+    connectInFlight = true;
+    var btn = document.querySelector('.btn-connect');
+    if (btn) btn.disabled = true;
+
     var statusEl = document.getElementById('connect-status');
     statusEl.textContent = 'Scanning for device...';
     intentionalDisconnect = false;
@@ -174,6 +256,7 @@
       debug('Device found', s.bleDevice.name);
       if (window.PSDiag) PSDiag.begin(s.bleDevice.name);
 
+      s.bleDevice.removeEventListener('gattserverdisconnected', onDisconnect);
       s.bleDevice.addEventListener('gattserverdisconnected', onDisconnect);
 
       var server = await s.bleDevice.gatt.connect();
@@ -190,6 +273,7 @@
       s.equipmentType = model.type;
       debug('Model detected', { name: model.name, type: model.type, maxR: model.maxR });
       if (window.PSDiag) PSDiag.phase('model_detected', { name: model.name, type: model.type });
+      if (window.initSupportUI) initSupportUI();  // support mailto now knows the equipment
 
       document.getElementById('connect-screen').style.display = 'none';
 
@@ -241,6 +325,9 @@
         debug('Connect error', err.message);
       }
       console.error('BLE error:', err);
+    } finally {
+      connectInFlight = false;
+      if (btn) btn.disabled = false;
     }
   };
 
@@ -343,8 +430,31 @@
   }
 
   // ---- Disconnect Handler ----
+  // Was an unintentional drop "the rider finished" or a real connection loss?
+  // A rider who ended a workout and walked away (bike sleeps ~30s later) used to
+  // get 60s of reconnect attempts and a wake lock held on a dark screen.
+  function classifyDrop() {
+    var now = Date.now() / 1000;
+    var sinceWorkoutEnd = s.workoutEndedAt > 0 ? now - s.workoutEndedAt : null;
+    var idleFor = s.lastNonZeroCadenceTime > 0 ? now - s.lastNonZeroCadenceTime
+                                               : (s.connectedAt > 0 ? now - s.connectedAt : 0);
+    var kind = 'drop';
+    if (s.workoutActive) kind = 'drop';                                                    // mid-workout — always reconnect
+    else if (sinceWorkoutEnd !== null && sinceWorkoutEnd <= PS.DONE_GRACE_AFTER_WORKOUT) kind = 'done';
+    else if (idleFor >= PS.DONE_IDLE_BEFORE_DROP) kind = 'done';
+    return { kind: kind, idle_s: Math.round(idleFor), sinceWorkoutEnd_s: sinceWorkoutEnd === null ? null : Math.round(sinceWorkoutEnd) };
+  }
+
   function onDisconnect() {
-    debug('BLE disconnected', { intentional: intentionalDisconnect, equipmentType: s.equipmentType });
+    stopA0Poll();
+    var cls = classifyDrop();   // before telemetry is zeroed
+    debug('BLE disconnected', {
+      intentional: intentionalDisconnect,
+      kind: intentionalDisconnect ? 'intentional' : cls.kind,
+      equipmentType: s.equipmentType,
+      idle_s: cls.idle_s,
+      sinceWorkoutEnd_s: cls.sinceWorkoutEnd_s,
+    });
     if (window.PSDiag) PSDiag.disconnected(intentionalDisconnect ? 'user' : 'gatt');
 
     // Zero out live telemetry (but preserve ride totals, workout state, etc.)
@@ -361,6 +471,13 @@
       debug('Intentional disconnect, cleaning up');
       if (window.__pulse) window.__pulse('disconnect', (s.autoDisconnected ? 'auto:' : 'user:') + s.equipmentType + ':' + s.bikeModel);
       fullDisconnectCleanup();
+      return;
+    }
+
+    // Rider finished (post-workout grace, or idle before the drop) — no reconnect loop
+    if (cls.kind === 'done') {
+      if (window.__pulse) window.__pulse('disconnect', 'done:' + s.equipmentType + ':' + s.bikeModel);
+      fullDisconnectCleanup('Ride ended — equipment disconnected. Tap CONNECT to ride again.');
       return;
     }
 
@@ -401,6 +518,9 @@
     var elapsed = Math.round((RECONNECT_WINDOW_MS - (reconnectDeadline - Date.now())) / 1000);
     debug('Reconnect hard fail', { attempts: attempts, elapsed_s: elapsed });
     if (window.__pulse) window.__pulse('reconnect_failed', 'attempts:' + attempts + ':elapsed:' + elapsed + 's');
+    // The ride is over for summary purposes, and the screen must not stay awake on a dead link
+    emitRideComplete();
+    releaseWakeLock();
     // Stay on the dashboard with a manual retry — don't silently dump to the connect screen
     showReconnectBanner('Connection lost — couldn\'t reconnect. ', true);
   }
@@ -470,6 +590,7 @@
   }
 
   function emitRideComplete() {
+    if (rideSummaryEmitted) return;
     if (s.workoutActive || s.rideElapsed < 120) return;
     var dur = Math.round(s.rideElapsed);
     var v;
@@ -481,13 +602,21 @@
       v = 'bike:' + dur + 's:avgW:' + Math.round(avgOf(s.powerSamples));
     }
     if (window.__pulse) window.__pulse('ride_complete', v);
+    rideSummaryEmitted = true;
   }
+  // resetRide() starts a new ride on the same connection — allow another summary
+  PS.resetRideSummaryFlag = function() { rideSummaryEmitted = false; };
 
   // ---- Full Cleanup (only on intentional disconnect or failed reconnect) ----
-  function fullDisconnectCleanup() {
+  // msg: optional connect-status text (callers that pass nothing keep the old copy)
+  function fullDisconnectCleanup(msg) {
     reconnecting = false;
+    stopA0Poll();
     releaseWakeLock();
     hideReconnectBanner();
+    hideNoCadenceHint();
+    // A plan request still in flight must not start a workout on the connect screen
+    if (window.abortPendingPlan) abortPendingPlan();
 
     emitRideComplete();
     s.rideActive = false;
@@ -501,9 +630,9 @@
     document.getElementById('rower-dashboard').style.display = 'none';
     document.getElementById('treadmill-dashboard').style.display = 'none';
     document.getElementById('connect-screen').style.display = 'flex';
-    document.getElementById('connect-status').textContent = s.autoDisconnected
+    document.getElementById('connect-status').textContent = msg ? msg : (s.autoDisconnected
       ? 'Auto-disconnected after ' + Math.round(PS.IDLE_TIMEOUT_DISCONNECT / 60) + ' minutes of inactivity to save battery. Tap CONNECT to resume.'
-      : 'Disconnected — power on your device and reconnect.';
+      : 'Disconnected — power on your device and reconnect.');
     location.hash = 'connect';
     if (window.armConnectTrouble) armConnectTrouble();
   }
@@ -592,6 +721,15 @@
     if (data[1] === 0xD1 && data.length >= 11) {
       s.cadence = (data[9] << 8) | data[10];
 
+      // Revolution counter (bytes 7-8). A bike streaming D1 with this stuck at 0
+      // while the rider interacts is reporting "no pedal motion" — updateBikeDisplay
+      // turns that into a hint + no_cadence event.
+      var revs = (data[7] << 8) | data[8];
+      if (s.revStaticSince === 0 || revs !== s.lastRevCount) {
+        s.lastRevCount = revs;
+        s.revStaticSince = now;
+      }
+
       // Anomaly detection — flag impossible values (firmware change?)
       if (s.cadence > 200) {
         debug('Anomaly: cadence ' + s.cadence, { raw9: data[9], raw10: data[10] });
@@ -623,6 +761,10 @@
 
     } else if (data[1] === 0xD2 && data.length >= 4) {
       var newR = data[3];
+      // A D2 carrying a different value than the previous D2 = the knob was turned
+      if (s.d2Count > 0 && newR !== s.lastD2Value) s.d2ChangedSinceConnect = true;
+      s.d2Count++;
+      s.lastD2Value = newR;
       if (newR > 50) {
         debug('Anomaly: resistance ' + newR);
       } else {

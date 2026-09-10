@@ -39,6 +39,7 @@
   var PULSE_SITE = 'pedalsync';
   var MAX_X_CHARS = 6000;   // JSON payload size before packet chunking kicks in
   var PKT_CHUNK = 16;       // packets per <event>_pkts chunk
+  var CHUNK_PACE_MS = 150;  // spacing between chunk beacons (a same-tick burst lost events at the collector)
 
   var emitFn = null;
   var st = null;
@@ -105,13 +106,23 @@
         };
       }
     } catch (e) { /* keep full head */ }
+    head.chunks_paced_ms = CHUNK_PACE_MS;
     pulseSend(event, message, head);
+    // Head goes out immediately; chunks are spaced out. Firing them all in one
+    // tick — on top of s.js's own disconnect burst — dropped events at the
+    // collector. Keepalive fetches already issued survive tab close; ones still
+    // waiting may not, and that's acceptable: the head (verdict, counts, e0,
+    // unlock) is what matters.
     var total = Math.ceil(pkts.length / PKT_CHUNK);
     for (var i = 0; i < total; i++) {
-      pulseSend(event + '_pkts', event + ' packets ' + (i + 1) + '/' + total, {
-        seq: i + 1, of: total,
-        packets: pkts.slice(i * PKT_CHUNK, (i + 1) * PKT_CHUNK),
-      });
+      (function(idx) {
+        setTimeout(function() {
+          pulseSend(event + '_pkts', event + ' packets ' + (idx + 1) + '/' + total, {
+            seq: idx + 1, of: total,
+            packets: pkts.slice(idx * PKT_CHUNK, (idx + 1) * PKT_CHUNK),
+          });
+        }, idx * CHUNK_PACE_MS);
+      })(i);
     }
   }
 
@@ -176,6 +187,7 @@
       byHandle: {},                // handle -> count
       badCksum: 0,
       e0: { count: 0, firstAt: null, lastAt: null, afterKey: 0, afterEnable: 0, unique: {} },
+      d1: { total: 0, zeroMotion: 0 },   // bike D1 with revolutions AND cadence both 0
       unlock: null,                // {challenge, sentAt, ms, ok, status, key, framed, serverDiag, error}
       writes: [],                  // [{label, hex, t, ok, err}]
       keyWrittenAt: null,
@@ -206,7 +218,16 @@
 
   function verdict() {
     if (!st) return { side: 'unknown', code: 'no_session' };
-    if (st.firstTelemetryAt) return { side: 'ok', code: 'telemetry' };
+    if (st.firstTelemetryAt) {
+      // Bike streaming D1 the whole session with revs and cadence both 0 is the
+      // bike reporting "no pedal motion" (seen on Connect / EX-5; QZ #4218/#4221).
+      // Bikes only — rower/treadmill D1 use those bytes differently.
+      var isBike = /^ECH(EX|-)/i.test(st.device || '');
+      if (isBike && st.total >= 30 && st.d1.total > 0 && st.d1.zeroMotion === st.d1.total) {
+        return { side: 'bike', code: 'no_cadence', why: 'D1 streaming but revolutions and cadence stayed 0', d1: st.d1.total };
+      }
+      return { side: 'ok', code: 'telemetry' };
+    }
 
     var u = st.unlock;
     var sawE0 = st.e0.count > 0;
@@ -285,6 +306,8 @@
       enable_s: st.enableAt != null ? rel(st.enableAt) : null,
       first_telemetry_s: st.firstTelemetryAt != null ? rel(st.firstTelemetryAt) : null,
       first_telemetry_type: st.firstTelemetryType,
+      d1_total: st.d1.total,
+      d1_zero_motion: st.d1.zeroMotion,
       last_pkt: st.lastPkt,
       phases: st.phases,
       verdict: verdict(),
@@ -372,6 +395,11 @@
         if (st.keyWrittenAt != null && st.e0.afterKey === 1) {
           emit('e0_after_key', 'Bike re-challenged after key write | ' + rec.hex, snapshot(false));
         }
+      }
+
+      if (type === 'D1' && b.length >= 11) {
+        st.d1.total++;
+        if (((b[7] << 8) | b[8]) === 0 && ((b[9] << 8) | b[10]) === 0) st.d1.zeroMotion++;
       }
 
       if (isTelemetry(type) && st.firstTelemetryAt == null) {

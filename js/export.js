@@ -5,6 +5,7 @@
 (function() {
   var s = PS.state;
   var RECORD_INTERVAL = 5; // seconds between data points
+  var lastExportAt = 0;    // debounce — a double-tap produced two identical files in the field
 
   // ---- Record a data point (called from main update loop) ----
   window.recordDataPoint = function() {
@@ -151,6 +152,11 @@
       return;
     }
 
+    if (Date.now() - lastExportAt < 3000) {
+      if (window.__pulse) window.__pulse('export', s.equipmentType + ':dup');
+      return;
+    }
+
     try {
       var tcx = generateTCX();
       if (!tcx) {
@@ -172,6 +178,7 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
+      lastExportAt = Date.now();
       if (window.__pulse) window.__pulse('export', type);
     } catch(err) {
       if (window.__pulse) window.__pulse('debug', 'Export error: ' + (err.message || 'unknown'));

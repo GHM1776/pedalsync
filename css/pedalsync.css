@@ -900,6 +900,19 @@ body {
   letter-spacing: 0.04em;
   animation: reconnect-pulse 1.5s ease-in-out infinite;
 }
+.no-cadence-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: rgba(255, 61, 0, 0.08);
+  border-left: 2px solid var(--red);
+  font-size: 0.8rem;
+  color: var(--text);
+  line-height: 1.4;
+}
 .reconnect-banner.settled { animation: none; }
 .reconnect-banner .banner-btn {
   margin-left: 10px;

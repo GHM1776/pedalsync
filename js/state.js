@@ -16,6 +16,23 @@ PS.API_BASE = location.origin;
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
 PS.IDLE_TIMEOUT_RIDE       = 180;   // 3 min — pause ride tracking
 PS.IDLE_TIMEOUT_DISCONNECT = 1800;  // 30 min — auto-disconnect BLE to save battery
+PS.DONE_GRACE_AFTER_WORKOUT = 120;  // sec — drop within this window after workout end = user is done
+PS.DONE_IDLE_BEFORE_DROP    = 60;   // sec — no pedal/stroke/step for this long before a drop = user is done
+PS.PLAN_TIMEOUT_MS          = 20000; // coach plan / adaptive fetch abort
+PS.NO_CADENCE_AFTER_S       = 60;   // bike streaming D1 with revolutions stuck at 0 this long = "no pedal motion"
+
+// ---- Optional: mirror the official app's BLE init chatter (ship OFF) ----
+// From a snoop of the Echelon app: A1 x4, A3, A1, B0, then an A0 poll every 2s.
+// B0 alone streams fine on every bike seen so far; this exists to test whether
+// the Connect Sport's "no motion" state is something the app's chatter avoids.
+PS.ECHELON_FULL_INIT = false;
+PS.CMD_INIT_A1 = new Uint8Array([0xF0, 0xA1, 0x00, 0x91]);
+PS.CMD_INIT_A3 = new Uint8Array([0xF0, 0xA3, 0x00, 0x93]);
+PS.A0_POLL_MS  = 2000;
+PS.cmdPollA0 = function(counter) {
+  var c = counter & 0xFF;
+  return new Uint8Array([0xF0, 0xA0, 0x01, c, (0xF0 + 0xA0 + 0x01 + c) & 0xFF]);
+};
 
 // ---- Mutable State ----
 PS.state = {
@@ -24,6 +41,14 @@ PS.state = {
   writeChar: null,
   connectedAt: 0,          // unix sec of last successful GATT setup (idle-disconnect basis)
   autoDisconnected: false, // set when the 30-min idle auto-disconnect fired
+
+  // Bike "no pedal motion" detection (D1 revolution counter, bytes 7-8)
+  lastRevCount: 0,
+  revStaticSince: 0,           // unix sec the rev count last changed (or was first seen)
+  d2Count: 0,                  // D2 packets this connection
+  lastD2Value: -1,
+  d2ChangedSinceConnect: false, // a D2 arrived with a different value than the previous one = knob turned
+  noCadenceFired: false,       // hint + event fired once this connection
 
   // Telemetry (bike)
   cadence: 0,
@@ -70,6 +95,8 @@ PS.state = {
 
   // Workout / coach
   workoutActive: false,
+  planPending: false,     // plan request in flight — not yet a workout
+  workoutEndedAt: 0,      // unix sec stopWorkout() last ran (0 = never)
   workoutId: '',
   selectedDifficulty: 'easy',
   workoutPlan: [],

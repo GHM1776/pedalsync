@@ -3,6 +3,21 @@
 // ============================================================
 (function() {
   var s = PS.state;
+  var planAbort = null;      // AbortController of the in-flight plan request
+  var planCancelled = false; // set when the connection ended mid-request
+
+  // Called from fullDisconnectCleanup(): a plan response landing after the BLE
+  // link is gone must not start a workout on the connect screen.
+  window.abortPendingPlan = function() {
+    if (!s.planPending) return;
+    planCancelled = true;
+    s.planPending = false;
+    s.workoutActive = false;
+    if (planAbort) { try { planAbort.abort(); } catch(e) {} planAbort = null; }
+    var e = els();
+    if (e.btnStart) e.btnStart.disabled = false;
+    updateCoachUI();
+  };
 
   // ---- DOM element mapping per equipment type ----
   function els() {
@@ -48,20 +63,50 @@
 
   // ---- Start Workout ----
   window.startWorkout = async function() {
+    if (s.planPending) return;
     var e = els();
     var duration = parseInt(e.duration.value);
-    e.btnStart.disabled = true;
+    var isRower = s.equipmentType === 'rower';
 
+    // Not a workout until the plan arrives. Setting workoutActive here used to let
+    // checkCoachProgress (200ms loop) see the PREVIOUS plan + start time, trip the
+    // safety stop, emit a bogus workout_end and re-enable START mid-fetch.
+    s.planPending = true;
+    planCancelled = false;
+    s.workoutActive = false;
+    s.workoutPlan = [];
+    s.workoutStartTime = 0;
+    s.workoutEndedAt = 0;
+    e.btnStart.disabled = true;
     showCoaching('Generating your workout plan...', '', 0);
-    s.workoutActive = true;
     updateCoachUI();
 
-    var isRower = s.equipmentType === 'rower';
+    var ctl = new AbortController();
+    planAbort = ctl;
+    var timer = setTimeout(function() { ctl.abort(); }, PS.PLAN_TIMEOUT_MS);
+
+    function finishRequest() {
+      clearTimeout(timer);
+      if (planAbort === ctl) planAbort = null;
+    }
+
+    // Every failure path goes through here so the UI reset can't drift.
+    // reason: timeout | http_<status> | empty | network
+    function abortPlan(msg, reason) {
+      finishRequest();
+      s.planPending = false;
+      s.workoutActive = false;
+      if (window.__pulse) window.__pulse('plan_error', reason + ':' + s.equipmentType + ':' + s.selectedDifficulty + ':' + duration + 'min');
+      showCoaching(msg, '', 0);
+      e.btnStart.disabled = false;
+      updateCoachUI();
+    }
 
     try {
       var resp = await fetch(PS.API_BASE + '/api/instructor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: ctl.signal,
         body: JSON.stringify({
           action: 'generate_plan',
           difficulty: s.selectedDifficulty,
@@ -71,28 +116,24 @@
         }),
       });
 
+      // Connection ended while we waited — abortPendingPlan already reset the UI
+      if (planCancelled) { planCancelled = false; finishRequest(); return; }
+
       if (!resp.ok) {
-        var errText = '';
-        try { errText = (await resp.json()).error || ''; } catch(_) {}
-        if (window.__pulse) window.__pulse('debug', 'Coach plan failed: HTTP ' + resp.status + ' ' + errText);
-        showCoaching(resp.status === 429 ? 'Rate limited — wait a moment and try again.' : 'Failed to generate plan. Try again.', '', 0);
-        s.workoutActive = false;
-        e.btnStart.disabled = false;
-        updateCoachUI();
+        abortPlan(resp.status === 429 ? 'Rate limited — wait a moment and try again.' : 'Failed to generate plan. Try again.',
+                  'http_' + resp.status);
         return;
       }
 
       var data = await resp.json();
+      if (planCancelled) { planCancelled = false; finishRequest(); return; }
 
       if (!data.plan || !data.plan.length) {
-        if (window.__pulse) window.__pulse('debug', 'Coach plan empty or invalid');
-        showCoaching('Failed to generate plan. Try again.', '', 0);
-        s.workoutActive = false;
-        e.btnStart.disabled = false;
-        updateCoachUI();
+        abortPlan('Failed to generate plan. Try again.', 'empty');
         return;
       }
 
+      finishRequest();
       s.workoutPlan = data.plan;
       s.workoutId = data.workout_id || '';
       s.currentSegIdx = 0;
@@ -102,6 +143,8 @@
       s.powerSamples = [];
       s.cadenceSamples = [];
       s.spmSamples = [];
+      s.workoutActive = true;
+      s.planPending = false;
 
       if (window.__pulse) window.__pulse('workout_start', s.equipmentType + ':' + s.selectedDifficulty + ':' + duration + 'min');
 
@@ -119,19 +162,24 @@
       }
 
     } catch(err) {
-      if (window.__pulse) window.__pulse('debug', 'Coach plan network error: ' + (err.message || 'unknown'));
-      showCoaching('Network error. Check connection.', '', 0);
-      s.workoutActive = false;
-      e.btnStart.disabled = false;
-      updateCoachUI();
+      if (planCancelled) { planCancelled = false; finishRequest(); return; }
+      if (err.name === 'AbortError') {
+        abortPlan('Plan request timed out. Check your connection and try again.', 'timeout');
+      } else {
+        abortPlan('Network error. Check connection.', 'network');
+      }
     }
   };
 
   // ---- Stop Workout ----
   window.stopWorkout = function() {
     // Guard against duplicate calls (race between timer and button)
-    if (!s.workoutActive) return;
+    if (!s.workoutActive && !s.planPending) return;
+    // END while the plan is still generating just cancels the request — there is
+    // nothing to summarize, and START must not come back while a fetch is in flight
+    if (s.planPending) { window.abortPendingPlan(); return; }
     s.workoutActive = false;
+    s.workoutEndedAt = Date.now() / 1000;
     var elapsed = Date.now() / 1000 - s.workoutStartTime;
     var avgP = s.powerSamples.length
       ? Math.round(s.powerSamples.reduce(function(a, b) { return a + b; }, 0) / s.powerSamples.length)
@@ -145,7 +193,7 @@
 
   // ---- Check Progress (called from main update loop) ----
   window.checkCoachProgress = function() {
-    if (!s.workoutActive || !s.workoutPlan.length) return;
+    if (!s.workoutActive || s.planPending || !s.workoutPlan.length) return;
 
     var now = Date.now() / 1000;
     var seg = s.workoutPlan[s.currentSegIdx];
@@ -195,7 +243,7 @@
   };
 
   // ---- Adaptive Coaching ----
-  async function fetchAdaptiveCoaching() {
+  async function fetchAdaptiveCoaching(isRetry) {
     if (!s.workoutActive || s.currentSegIdx >= s.workoutPlan.length) return;
 
     var seg = s.workoutPlan[s.currentSegIdx];
@@ -247,19 +295,31 @@
       };
     }
 
+    var ctl = new AbortController();
+    var timer = setTimeout(function() { ctl.abort(); }, PS.PLAN_TIMEOUT_MS);
     try {
       var resp = await fetch(PS.API_BASE + '/api/instructor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: ctl.signal,
         body: JSON.stringify(body),
       });
+      clearTimeout(timer);
       var data = await resp.json();
-      if (data.coaching) {
+      if (data.coaching && s.workoutActive) {
         var e = els();
         e.text.textContent = data.coaching;
       }
     } catch(err) {
-      if (window.__pulse) window.__pulse('debug', 'Coach adaptive error: ' + (err.message || 'unknown'));
+      clearTimeout(timer);
+      var reason = err.name === 'AbortError' ? 'timeout' : 'network';
+      // Phones hop networks mid-ride and lose one call — retry a network blip once.
+      // Adaptive cues are non-fatal either way: the UI just keeps the last cue.
+      if (reason === 'network' && !isRetry && s.workoutActive) {
+        setTimeout(function() { fetchAdaptiveCoaching(true); }, 3000);
+        return;
+      }
+      if (window.__pulse) window.__pulse('coach_error', 'adaptive:' + reason);
       console.error('Adaptive coaching error:', err);
     }
   }
@@ -281,7 +341,7 @@
   // ---- Toggle Setup / Active UI ----
   window.updateCoachUI = function() {
     var e = els();
-    if (s.workoutActive) {
+    if (s.workoutActive || s.planPending) {
       if (e.setup) e.setup.classList.add('hidden');
       if (e.active) e.active.classList.add('visible');
     } else {

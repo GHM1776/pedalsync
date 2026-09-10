@@ -148,6 +148,12 @@
     <div class="status-dot" id="status-dot"></div>
   </div>
 
+  <!-- Shown by bike-dashboard.js when D1 streams with revolutions stuck at 0 -->
+  <div class="no-cadence-hint hidden" id="no-cadence-hint">
+    <span>The bike isn't reporting pedal revolutions. Stop pedaling, unplug the bike for 10 seconds, plug it back in, then reconnect.</span>
+    <button class="support-banner-close" onclick="hideNoCadenceHint()">&times;</button>
+  </div>
+
   <div class="top-stats">
     <div class="top-stat" id="card-cadence">
       <div class="stat-label">CADENCE</div>
