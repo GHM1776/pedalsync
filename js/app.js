@@ -34,6 +34,9 @@
     document.getElementById('connect-screen').style.display = 'flex';
     location.hash = 'connect';
     armConnectTrouble();
+    // The pv /#connect moment: look for a newer service worker now, not on the
+    // CONNECT tap (nothing may delay requestDevice())
+    if (window.PSCheckForUpdate) PSCheckForUpdate();
 
     // Check Web Bluetooth support
     if (!navigator.bluetooth) {

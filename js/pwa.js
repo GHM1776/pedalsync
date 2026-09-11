@@ -126,9 +126,12 @@
   // sw.js on navigation or every 24h — so a tab left open (or an installed PWA)
   // can run yesterday's JS through today's ride. A rower reconnected 25 minutes
   // after the rower fix deployed and was still on the broken build. So: check
-  // for an update on CONNECT and when the tab returns after a long absence, and
-  // when a new worker takes control, reload — immediately if not connected,
-  // after the ride if connected. Never mid-ride.
+  // for an update when the connect screen is shown and when the tab returns
+  // after a long absence, and when a new worker takes control, reload —
+  // immediately if idle, after the ride if connected or mid-connect. Never
+  // mid-ride. NOT on the CONNECT tap itself: the Bluetooth picker needs
+  // transient user activation, which Chrome expires ~5s after the tap, so
+  // nothing may await between the tap and requestDevice().
   var swReg = null;
   var lastUpdateCheck = 0;
   var UPDATE_CHECK_MIN_MS = 30 * 60 * 1000;
@@ -158,40 +161,36 @@
     location.reload();
   }
 
-  // Ask the browser to re-fetch sw.js now. Resolves once it's reasonable to carry
-  // on — CONNECT awaits this so a stale page reloads BEFORE the picker opens.
-  // Throttled to one network check per 30 min unless force is set.
+  // Ask the browser to re-fetch sw.js now. Fire-and-forget: nobody awaits it —
+  // controllerchange does the reload when a new worker lands. Throttled to one
+  // network check per 30 min unless force is set.
   window.PSCheckForUpdate = function(force) {
     if (!swReg) return Promise.resolve();
     var now = Date.now();
     if (!force && now - lastUpdateCheck < UPDATE_CHECK_MIN_MS) return Promise.resolve();
     lastUpdateCheck = now;
-    var netCheck = Promise.race([
-      swReg.update().catch(function() { /* offline or sw.js unreachable — carry on */ }),
-      new Promise(function(r) { setTimeout(r, 1500); }),   // the no-update path never waits longer than this
-    ]);
-    return netCheck.then(function() {
-      // A new worker is installing: give it a moment to activate — controllerchange
-      // does the reload. If it takes longer, the picker just opens and the reload
-      // lands when the worker does.
-      if (swReg.installing || swReg.waiting) return new Promise(function(r) { setTimeout(r, 3000); });
-    });
+    return swReg.update().catch(function() { /* offline or sw.js unreachable — carry on */ });
   };
 
   function onControllerChange() {
     if (!hadController) { hadController = true; return; }   // first install claiming this page — nothing to swap
-    if (!isConnected()) { reloadForUpdate(); return; }
+    // Idle = not connected and not mid-connect (a reload during the picker or
+    // setupGATT would kill the connect in progress)
+    var inFlight = !!(PS.connectInFlight && PS.connectInFlight());
+    if (!isConnected() && !inFlight) { reloadForUpdate(); return; }
     // Mid-ride a reload would kill the BLE session and the in-memory ride
     // samples — fullDisconnectCleanup() applies it once the ride is over.
     s.updatePending = true;
     if (window.__pulse) window.__pulse('sw_update', 'deferred');
   }
 
-  // Called from fullDisconnectCleanup() in ble.js once the ride is over
+  // Called from ble.js once the page is idle again (end of a ride, or a connect
+  // attempt that ended without a connection). Returns true if a reload was started.
   window.PSApplyPendingUpdate = function() {
-    if (!s.updatePending) return;
+    if (!s.updatePending) return false;
     s.updatePending = false;
     reloadForUpdate();
+    return reloading;
   };
 
   document.addEventListener('visibilitychange', function() {

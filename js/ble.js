@@ -11,7 +11,8 @@
   var RECONNECT_WINDOW_MS = 60000;  // wall-clock budget — hard-fail after this
   var reconnectDeadline = 0;
   var rideSummaryEmitted = false;   // one ride_complete per connection
-  var connectInFlight = false;      // CONNECT double-tap guard
+  var connectInFlight = false;      // CONNECT double-tap guard; also gates SW-update reloads
+  PS.connectInFlight = function() { return connectInFlight; };
   var hiddenAt = 0;                 // visibilitychange bookkeeping
 
   // ---- Silent Debug Logging ----
@@ -240,8 +241,8 @@
     statusEl.textContent = 'Scanning for device...';
     intentionalDisconnect = false;
     if (window.__pulse) window.__pulse('connect_click');
-    // A stale page (SW updated since it loaded) reloads here, before the picker opens
-    if (window.PSCheckForUpdate) { try { await PSCheckForUpdate(); } catch(e) { /* never block CONNECT */ } }
+    // No awaits between here and requestDevice(): the picker needs the tap's
+    // transient user activation, which Chrome expires after ~5s
     var pickerOpened = Date.now();
 
     try {
@@ -331,6 +332,9 @@
     } finally {
       connectInFlight = false;
       if (btn) btn.disabled = false;
+      // An update deferred during the picker/setup is safe to apply if we ended up unconnected
+      var connectedNow = !!(s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected);
+      if (s.updatePending && !connectedNow && window.PSApplyPendingUpdate) PSApplyPendingUpdate();
     }
   };
 
@@ -638,8 +642,10 @@
       : 'Disconnected — power on your device and reconnect.');
     location.hash = 'connect';
     if (window.armConnectTrouble) armConnectTrouble();
-    // An update that arrived mid-ride was deferred to here (ride_complete already beaconed)
-    if (window.PSApplyPendingUpdate) PSApplyPendingUpdate();
+    // An update that arrived mid-ride was deferred to here (ride_complete already
+    // beaconed). Otherwise the connect screen is back — a good moment to look for one.
+    var reloading = !!(window.PSApplyPendingUpdate && PSApplyPendingUpdate());
+    if (!reloading && window.PSCheckForUpdate) PSCheckForUpdate();
   }
 
   // ---- Voluntary Disconnect (user-initiated) ----
