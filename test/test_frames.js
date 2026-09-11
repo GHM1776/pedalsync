@@ -95,5 +95,10 @@ check('resetStats zeroes every counter, the gap clock and unknown types',
 F.onBLEData(ev(bikeD1));
 check('first packet after reset counts from 1 with no gap', F.stats.total === 1 && F.stats.gaps === 0);
 
+// ---- 7. PS.BUILD must track sw.js CACHE_NAME (SW reload loop guard) ----
+const swSrc = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+const cacheName = (swSrc.match(/CACHE_NAME = 'pedalsync-(v\d+)'/) || [])[1];
+check('PS.BUILD equals sw.js CACHE_NAME (' + cacheName + ')', !!cacheName && PS.BUILD === cacheName);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nALL PASS');
 process.exit(fail ? 1 : 0);

@@ -140,24 +140,19 @@
     return !!(s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected);
   }
 
-  function showUpdateBanner() {
-    ['dashboard', 'rower-dashboard', 'treadmill-dashboard'].forEach(function(id) {
-      var dash = document.getElementById(id);
-      if (!dash) return;
-      var el = dash.querySelector('.update-banner');
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'update-banner';
-        el.style.cssText = 'padding:8px 12px;margin-bottom:8px;background:rgba(242,169,0,0.08);' +
-          'border-left:2px solid var(--gold-dim);font-size:0.8rem;color:var(--text);letter-spacing:0.04em;';
-        dash.insertBefore(el, dash.firstChild);
-      }
-      el.textContent = 'Update ready — will apply after your ride';
-    });
-  }
-
   function reloadForUpdate() {
     if (reloading) return;
+    // Loop guard: if this build already reloaded itself once in this tab and is
+    // still the one running, something upstream is wrong — don't spin.
+    // PS.BUILD tracks sw.js CACHE_NAME, so a real update always changes it.
+    var build = PS.BUILD || '';
+    var last = '';
+    try { last = sessionStorage.getItem('ps_reloaded') || ''; } catch(e) { /* private mode */ }
+    if (build && last === build) {
+      if (window.__pulse) window.__pulse('sw_update', 'loop_guard');
+      return;
+    }
+    try { sessionStorage.setItem('ps_reloaded', build); } catch(e) { /* private mode */ }
     reloading = true;
     if (window.__pulse) window.__pulse('sw_update', 'reloaded');   // keepalive beacon survives the reload
     location.reload();
@@ -186,9 +181,10 @@
   function onControllerChange() {
     if (!hadController) { hadController = true; return; }   // first install claiming this page — nothing to swap
     if (!isConnected()) { reloadForUpdate(); return; }
+    // Mid-ride a reload would kill the BLE session and the in-memory ride
+    // samples — fullDisconnectCleanup() applies it once the ride is over.
     s.updatePending = true;
     if (window.__pulse) window.__pulse('sw_update', 'deferred');
-    showUpdateBanner();
   }
 
   // Called from fullDisconnectCleanup() in ble.js once the ride is over

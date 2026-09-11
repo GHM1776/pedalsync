@@ -12,6 +12,10 @@ PS.CMD_ENABLE  = new Uint8Array([0xF0, 0xB0, 0x01, 0x01, 0xA2]);
 
 PS.API_BASE = location.origin;
 
+// Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
+// Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
+PS.BUILD = 'v14';
+
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
 PS.IDLE_TIMEOUT_RIDE       = 180;   // 3 min — pause ride tracking
