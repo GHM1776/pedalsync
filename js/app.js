@@ -115,8 +115,6 @@
     s.rowerDistance = 0;
     s.rowerCalories = 0;
     s.rowerPower = 0;
-    s.rowerD1Buffer = null;
-    s.rowerD1Expected = 0;
     s.rowerSPMSamples = [];
     s.rowerSplitSamples = [];
     s.spmSamples = [];

@@ -188,6 +188,8 @@
       badCksum: 0,
       e0: { count: 0, firstAt: null, lastAt: null, afterKey: 0, afterEnable: 0, unique: {} },
       d1: { total: 0, zeroMotion: 0 },   // bike D1 with revolutions AND cadence both 0
+      unknownPkts: [],                    // last 20 unknown F0 types verbatim
+      frames: { ok: 0, abandoned: 0, pending: null },   // split-frame tracking (rower D1 = 10 + 11)
       unlock: null,                // {challenge, sentAt, ms, ok, status, key, framed, serverDiag, error}
       writes: [],                  // [{label, hex, t, ok, err}]
       keyWrittenAt: null,
@@ -225,6 +227,16 @@
       var isBike = /^ECH(EX|-)/i.test(st.device || '');
       if (isBike && st.total >= 30 && st.d1.total > 0 && st.d1.zeroMotion === st.d1.total) {
         return { side: 'bike', code: 'no_cadence', why: 'D1 streaming but revolutions and cadence stayed 0', d1: st.d1.total };
+      }
+      // Telemetry flowed, but something worth a look showed up
+      var unknownCount = 0;
+      for (var k in st.counts) { if (k.indexOf('F0_') === 0) unknownCount += st.counts[k]; }
+      if (unknownCount > 0) {
+        return { side: 'ok', code: 'unknown_types', unknown: unknownCount,
+                 types: st.unknownPkts.slice(-3).map(function(p) { return p.type; }) };
+      }
+      if (st.frames.abandoned > 0) {
+        return { side: 'ok', code: 'fragments', abandoned: st.frames.abandoned, reassembled: st.frames.ok };
       }
       return { side: 'ok', code: 'telemetry' };
     }
@@ -308,6 +320,9 @@
       first_telemetry_type: st.firstTelemetryType,
       d1_total: st.d1.total,
       d1_zero_motion: st.d1.zeroMotion,
+      unknown_pkts: st.unknownPkts,
+      frames_ok: st.frames.ok,
+      frames_abandoned: st.frames.abandoned,
       last_pkt: st.lastPkt,
       phases: st.phases,
       verdict: verdict(),
@@ -382,6 +397,21 @@
 
       if (st.firstPkts.length < FIRST_KEEP) st.firstPkts.push(rec);
       else { st.ringPkts.push(rec); if (st.ringPkts.length > RING_KEEP) st.ringPkts.shift(); }
+
+      // Unknown F0 types: keep the last 20 verbatim — the head/tail packet window
+      // in the snapshot can miss a rare type that shows up mid-ride
+      if (type.indexOf('F0_') === 0) {
+        st.unknownPkts.push({ type: type, hex: rec.hex, h: handle, t: rec.t });
+        if (st.unknownPkts.length > 20) st.unknownPkts.shift();
+      }
+      // Split-frame tracking, same rule as ble.js's assembler (E0 excluded)
+      if (b[0] === 0xF0 && b.length >= 3 && b[1] !== 0xE0 && (b[2] + 4) > b.length) {
+        if (st.frames.pending) st.frames.abandoned++;
+        st.frames.pending = { expected: b[2] + 4, got: b.length };
+      } else if (type === 'cont' && st.frames.pending) {
+        st.frames.pending.got += b.length;
+        if (st.frames.pending.got >= st.frames.pending.expected) { st.frames.ok++; st.frames.pending = null; }
+      }
 
       if (type === 'E0') {
         st.e0.count++;

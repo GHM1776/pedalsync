@@ -84,9 +84,14 @@
     var ctl = new AbortController();
     planAbort = ctl;
     var timer = setTimeout(function() { ctl.abort(); }, PS.PLAN_TIMEOUT_MS);
+    // Long plans (45 min) take a while — reassure at 15s instead of looking hung
+    var slowNote = setTimeout(function() {
+      if (s.planPending && planAbort === ctl) showCoaching('Still generating — longer plans take a moment.', '', 0);
+    }, 15000);
 
     function finishRequest() {
       clearTimeout(timer);
+      clearTimeout(slowNote);
       if (planAbort === ctl) planAbort = null;
     }
 

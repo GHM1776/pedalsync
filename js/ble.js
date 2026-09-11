@@ -219,6 +219,8 @@
     s.lastRevCount = 0; s.revStaticSince = 0;
     s.d2Count = 0; s.lastD2Value = -1; s.d2ChangedSinceConnect = false; s.noCadenceFired = false;
     hideNoCadenceHint();
+    fragReset();
+    unknownLogged = 0; unknownReported = {}; abandonLogged = false;
 
     return { writeChar: writeChar, dataChar: dataChar };
   }
@@ -462,7 +464,7 @@
     s.power = 0;
     s.rowerSPM = 0;
     s.rowerPower = 0;
-    s.rowerD1Buffer = null;
+    fragReset();
     s.treadSpeed = 0;
     s.treadIncline = 0;
 
@@ -651,9 +653,81 @@
 
   // ---- BLE Data Parsing ----
   // Packet health tracking
-  var packetStats = { total: 0, good: 0, badChecksum: 0, unknown: 0, lastPacketTime: 0, gaps: 0 };
+  var packetStats = { total: 0, good: 0, badChecksum: 0, unknown: 0, lastPacketTime: 0, gaps: 0,
+                      framesReassembled: 0, framesAbandoned: 0, unknownTypes: {} };
   var PACKET_GAP_THRESHOLD = 3; // seconds — flag if no packets for this long
   var lastHealthLog = 0;
+  var unknownLogged = 0;          // per-connection cap on "Unknown packet" debug lines
+  var unknownReported = {};       // per-connection: type -> true once unknown_packet was emitted
+  var abandonLogged = false;      // per-connection: "Fragment abandoned" logged once
+
+  // ---- Multi-notification frames ----
+  // Some frames arrive split across BLE notifications (rower D1: 21 bytes as
+  // 10 + 11). A head is an F0 packet whose declared length (byte 2 + 4) exceeds
+  // the notification; continuations don't start with F0. The checksum must be
+  // verified on the reassembled frame, never on a fragment — verifying fragments
+  // dropped every rower D1 (badCksum once a second, every rower stat stuck at 0).
+  // E0 is excluded: byte 2 of a challenge is random data, not a length.
+  var frag = { buf: null, expected: 0, got: 0, at: 0 };
+  var FRAG_STALE_MS = 2000;
+
+  function isFragmentHead(d) {
+    return d[0] === 0xF0 && d.length >= 3 && d[1] !== 0xE0 && (d[2] + 4) > d.length;
+  }
+  function fragStart(d) {
+    frag.expected = d[2] + 4;
+    frag.buf = new Uint8Array(frag.expected);
+    var n = Math.min(d.length, frag.expected);
+    frag.buf.set(d.subarray(0, n));
+    frag.got = n;
+    frag.at = Date.now();
+  }
+  function fragAppend(d) {
+    if (!frag.buf) return null;
+    if (Date.now() - frag.at > FRAG_STALE_MS) { frag.buf = null; return null; }
+    var n = Math.min(d.length, frag.expected - frag.got);
+    frag.buf.set(d.subarray(0, n), frag.got);
+    frag.got += n;
+    if (frag.got >= frag.expected) { var f = frag.buf; frag.buf = null; return f; }
+    return null;
+  }
+  function fragReset() { frag.buf = null; frag.got = 0; frag.expected = 0; }
+  function fragAbandon() {
+    packetStats.framesAbandoned++;
+    if (!abandonLogged) {
+      abandonLogged = true;
+      debug('Fragment abandoned', { expected: frag.expected, got: frag.got });
+    }
+    frag.buf = null;
+  }
+
+  // Unknown packet types: keep the bytes and the channel (the log used to record
+  // type/len only, so a first-ever 0x8b went by with its payload lost)
+  function toHex(b) {
+    var out = [];
+    for (var i = 0; i < b.length; i++) out.push((b[i] < 16 ? '0' : '') + b[i].toString(16).toUpperCase());
+    return out.join(' ');
+  }
+  function shortHandle(uuid) { return (uuid && uuid.length >= 8) ? uuid.substring(4, 8).toUpperCase() : '?'; }
+  function noteUnknown(data, handle) {
+    var type = '0x' + data[1].toString(16);
+    packetStats.unknown++;
+    packetStats.unknownTypes[type] = (packetStats.unknownTypes[type] || 0) + 1;
+    if (unknownLogged < 10) {
+      unknownLogged++;
+      debug('Unknown packet', { type: type, len: data.length, ch: handle, hex: toHex(data) });
+    }
+    if (!unknownReported[type]) {
+      unknownReported[type] = true;
+      if (window.__pulse) window.__pulse('unknown_packet', type + ':' + data.length + ':' + s.bikeModel);
+    }
+  }
+
+  // Test handle (test/test_frames.js) — not used by the app
+  PS._frames = {
+    isFragmentHead: isFragmentHead, fragStart: fragStart, fragAppend: fragAppend, fragReset: fragReset,
+    verifyChecksum: verifyChecksum, stats: packetStats, onBLEData: function(ev) { onBLEData(ev); },
+  };
 
   function verifyChecksum(data) {
     if (data.length < 3) return true; // too short to verify
@@ -665,6 +739,7 @@
   function onBLEData(event) {
     var data = new Uint8Array(event.target.value.buffer);
     if (data.length < 2) return;
+    var handle = shortHandle(event.target && event.target.uuid);
 
     var now = Date.now() / 1000;
     var dt = s.lastUpdateTime > 0 ? now - s.lastUpdateTime : 0;
@@ -677,6 +752,19 @@
       debug('Packet gap', { gapSec: Math.round(now - packetStats.lastPacketTime), totalGaps: packetStats.gaps });
     }
     packetStats.lastPacketTime = now;
+
+    // Split frames: buffer the head, collect continuations, verify the whole frame
+    if (isFragmentHead(data)) {
+      if (frag.buf) fragAbandon();
+      fragStart(data);
+      return;
+    }
+    if (data[0] !== 0xF0) {
+      var frame = fragAppend(data);
+      if (!frame) return;   // partial, stale, or a stray continuation
+      data = frame;
+      packetStats.framesReassembled++;
+    }
 
     // Checksum verification (F0-prefixed packets)
     if (data[0] === 0xF0 && data.length >= 4) {
@@ -697,6 +785,9 @@
           good: packetStats.good,
           badCksum: packetStats.badChecksum,
           unknown: packetStats.unknown,
+          unknownTypes: packetStats.unknownTypes,
+          frames_reassembled: packetStats.framesReassembled,
+          frames_abandoned: packetStats.framesAbandoned,
           gaps: packetStats.gaps,
           errRate: packetStats.badChecksum > 0 ? Math.round(packetStats.badChecksum / packetStats.total * 100) + '%' : '0%'
         });
@@ -705,13 +796,13 @@
 
     // ---- ROWER ----
     if (s.equipmentType === 'rower') {
-      parseRowerPacket(data, now, dt);
+      if (!parseRowerPacket(data, now, dt) && data[0] === 0xF0 && data[1] !== 0xD0 && data[1] !== 0xD5) noteUnknown(data, handle);
       return;
     }
 
     // ---- TREADMILL ---- UNVERIFIED byte map
     if (s.equipmentType === 'treadmill') {
-      parseTreadmillPacket(data, now, dt);
+      if (!parseTreadmillPacket(data, now, dt) && data[0] === 0xF0 && data[1] !== 0xD0 && data[1] !== 0xD5) noteUnknown(data, handle);
       return;
     }
 
@@ -773,47 +864,29 @@
       s.power = PS.calcPower(s.cadence, s.resistance);
     } else if (data[0] === 0xF0 && data[1] !== 0xD0 && data[1] !== 0xD5) {
       // Unknown packet type (D0 = ack, D5 = heartbeat — expected, don't log)
-      packetStats.unknown++;
-      if (packetStats.unknown <= 5) {
-        debug('Unknown packet', { type: '0x' + data[1].toString(16), len: data.length });
-      }
+      noteUnknown(data, handle);
     }
   }
 
   // ---- Rower Packet Routing ----
+  // Returns true when the packet was a known type. D1 arrives reassembled (21 bytes)
+  // from the frame assembler in onBLEData.
   function parseRowerPacket(data, now, dt) {
-    if (data[0] === 0xF0 && data[1] === 0xD1 && data.length >= 10) {
-      var payloadLen = data[2];
-      var totalLen = payloadLen + 4;
-      s.rowerD1Buffer = new Uint8Array(totalLen);
-      s.rowerD1Buffer.set(data.subarray(0, Math.min(data.length, totalLen)));
-      s.rowerD1Expected = totalLen;
-      return;
-    }
-
-    if (s.rowerD1Buffer && data[0] !== 0xF0) {
-      var firstLen = 10;
-      var remaining = s.rowerD1Expected - firstLen;
-      if (data.length >= remaining) {
-        for (var i = 0; i < remaining && (firstLen + i) < s.rowerD1Buffer.length; i++) {
-          s.rowerD1Buffer[firstLen + i] = data[i];
-        }
-        parseRowerD1(s.rowerD1Buffer, now, dt);
-        s.rowerD1Buffer = null;
-        s.rowerD1Expected = 0;
-      }
-      return;
+    if (data[0] === 0xF0 && data[1] === 0xD1 && data.length >= 21) {
+      parseRowerD1(data, now, dt);
+      return true;
     }
 
     if (data[0] === 0xF0 && data[1] === 0xD2 && data.length >= 4) {
       s.resistance = data[3];
-      return;
+      return true;
     }
 
     if (data[0] === 0xF0 && data[1] === 0xD3 && data.length >= 4) {
       s.rowerPower = data[3];
-      return;
+      return true;
     }
+    return false;
   }
 
   // ---- Rower D1 Parse (21 bytes reassembled) ----
@@ -869,12 +942,13 @@
       } else {
         if (s.rideActive && now - s.lastCadenceTime > 3) s.rideActive = false;
       }
-      return;
+      return true;
     }
 
     if (data[0] === 0xF0 && data[1] === 0xD2 && data.length >= 4) {
       s.treadIncline = data[3];
-      return;
+      return true;
     }
+    return false;
   }
 })();

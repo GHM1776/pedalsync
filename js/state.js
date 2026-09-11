@@ -18,7 +18,7 @@ PS.IDLE_TIMEOUT_RIDE       = 180;   // 3 min — pause ride tracking
 PS.IDLE_TIMEOUT_DISCONNECT = 1800;  // 30 min — auto-disconnect BLE to save battery
 PS.DONE_GRACE_AFTER_WORKOUT = 120;  // sec — drop within this window after workout end = user is done
 PS.DONE_IDLE_BEFORE_DROP    = 60;   // sec — no pedal/stroke/step for this long before a drop = user is done
-PS.PLAN_TIMEOUT_MS          = 20000; // coach plan / adaptive fetch abort
+PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
 PS.NO_CADENCE_AFTER_S       = 60;   // bike streaming D1 with revolutions stuck at 0 this long = "no pedal motion"
 
 // ---- Optional: mirror the official app's BLE init chatter (ship OFF) ----
@@ -80,8 +80,6 @@ PS.state = {
   rowerDistance: 0,
   rowerCalories: 0,
   rowerPower: 0,
-  rowerD1Buffer: null,
-  rowerD1Expected: 0,
   rowerSPMSamples: [],
   rowerSplitSamples: [],
 
