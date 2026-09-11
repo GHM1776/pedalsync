@@ -219,8 +219,7 @@
     s.lastRevCount = 0; s.revStaticSince = 0;
     s.d2Count = 0; s.lastD2Value = -1; s.d2ChangedSinceConnect = false; s.noCadenceFired = false;
     hideNoCadenceHint();
-    fragReset();
-    unknownLogged = 0; unknownReported = {}; abandonLogged = false;
+    resetPacketStats();
 
     return { writeChar: writeChar, dataChar: dataChar };
   }
@@ -241,6 +240,8 @@
     statusEl.textContent = 'Scanning for device...';
     intentionalDisconnect = false;
     if (window.__pulse) window.__pulse('connect_click');
+    // A stale page (SW updated since it loaded) reloads here, before the picker opens
+    if (window.PSCheckForUpdate) { try { await PSCheckForUpdate(); } catch(e) { /* never block CONNECT */ } }
     var pickerOpened = Date.now();
 
     try {
@@ -637,6 +638,8 @@
       : 'Disconnected — power on your device and reconnect.');
     location.hash = 'connect';
     if (window.armConnectTrouble) armConnectTrouble();
+    // An update that arrived mid-ride was deferred to here (ride_complete already beaconed)
+    if (window.PSApplyPendingUpdate) PSApplyPendingUpdate();
   }
 
   // ---- Voluntary Disconnect (user-initiated) ----
@@ -660,6 +663,18 @@
   var unknownLogged = 0;          // per-connection cap on "Unknown packet" debug lines
   var unknownReported = {};       // per-connection: type -> true once unknown_packet was emitted
   var abandonLogged = false;      // per-connection: "Fragment abandoned" logged once
+
+  // Per-connection reset. Counters used to survive across connections: a reconnect
+  // 4.7h after a ride logged "Packet gap 17125s" and a health line carrying the
+  // morning's 5403 packets.
+  function resetPacketStats() {
+    packetStats.total = 0; packetStats.good = 0; packetStats.badChecksum = 0; packetStats.unknown = 0;
+    packetStats.gaps = 0; packetStats.framesReassembled = 0; packetStats.framesAbandoned = 0;
+    packetStats.lastPacketTime = 0; packetStats.unknownTypes = {};
+    lastHealthLog = 0;
+    unknownLogged = 0; unknownReported = {}; abandonLogged = false;
+    fragReset();
+  }
 
   // ---- Multi-notification frames ----
   // Some frames arrive split across BLE notifications (rower D1: 21 bytes as
@@ -727,6 +742,7 @@
   PS._frames = {
     isFragmentHead: isFragmentHead, fragStart: fragStart, fragAppend: fragAppend, fragReset: fragReset,
     verifyChecksum: verifyChecksum, stats: packetStats, onBLEData: function(ev) { onBLEData(ev); },
+    resetStats: resetPacketStats,
   };
 
   function verifyChecksum(data) {

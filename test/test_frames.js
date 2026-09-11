@@ -86,5 +86,14 @@ const u0 = F.stats.unknown;
 F.onBLEData(ev(cks([0xF0, 0x8B, 0x02, 0xAA, 0xBB, 0]), PS.ECH_NOTIFY1));
 check('unknown 0x8b counted per type', F.stats.unknown === u0 + 1 && F.stats.unknownTypes['0x8b'] === 1);
 
+// ---- 6. per-connection reset (stats used to carry across connections) ----
+F.resetStats();
+check('resetStats zeroes every counter, the gap clock and unknown types',
+  F.stats.total === 0 && F.stats.good === 0 && F.stats.badChecksum === 0 && F.stats.unknown === 0 &&
+  F.stats.gaps === 0 && F.stats.framesReassembled === 0 && F.stats.framesAbandoned === 0 &&
+  F.stats.lastPacketTime === 0 && Object.keys(F.stats.unknownTypes).length === 0);
+F.onBLEData(ev(bikeD1));
+check('first packet after reset counts from 1 with no gap', F.stats.total === 1 && F.stats.gaps === 0);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nALL PASS');
 process.exit(fail ? 1 : 0);

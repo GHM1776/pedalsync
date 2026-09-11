@@ -41,6 +41,7 @@ PS.state = {
   writeChar: null,
   connectedAt: 0,          // unix sec of last successful GATT setup (idle-disconnect basis)
   autoDisconnected: false, // set when the 30-min idle auto-disconnect fired
+  updatePending: false,    // a new service worker took control mid-ride; reload after cleanup
 
   // Bike "no pedal motion" detection (D1 revolution counter, bytes 7-8)
   lastRevCount: 0,
