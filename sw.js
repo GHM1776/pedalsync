@@ -1,5 +1,5 @@
 // PedalSync Service Worker — enables offline telemetry
-const CACHE_NAME = 'pedalsync-v15';
+const CACHE_NAME = 'pedalsync-v16';
 const CACHE_URLS = [
   '/',
   '/index.html',

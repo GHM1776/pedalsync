@@ -14,7 +14,7 @@ PS.API_BASE = location.origin;
 
 // Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
 // Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
-PS.BUILD = 'v15';
+PS.BUILD = 'v16';
 
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
@@ -22,6 +22,10 @@ PS.IDLE_TIMEOUT_RIDE       = 180;   // 3 min — pause ride tracking
 PS.IDLE_TIMEOUT_DISCONNECT = 1800;  // 30 min — auto-disconnect BLE to save battery
 PS.DONE_GRACE_AFTER_WORKOUT = 120;  // sec — drop within this window after workout end = user is done
 PS.DONE_IDLE_BEFORE_DROP    = 60;   // sec — no pedal/stroke/step for this long before a drop = user is done
+PS.DONE_IDLE_FAST_FAIL      = 30;   // sec — idle ≥ this at the drop and reconnect attempt 1 fails fast = equipment asleep, done
+PS.RECONNECT_MAX_ATTEMPTS   = 5;    // attempts inside the 60s reconnect window ("retrying N of 5")
+PS.RECONNECT_DELAYS         = [1000, 2000, 4000, 8000, 15000];  // ms backoff between attempts
+PS.HARDFAIL_AUTO_END_MS     = 5 * 60 * 1000;  // an untouched hard-fail banner ends the workout after this
 PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
 PS.NO_CADENCE_AFTER_S       = 60;   // bike streaming D1 with revolutions stuck at 0 this long = "no pedal motion"
 

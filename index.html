@@ -100,6 +100,14 @@
   <button class="btn-connect" onclick="connectBike()">CONNECT</button>
   <div class="connect-status" id="connect-status"></div>
 
+  <!-- Shown by app.js after a workout ends: the samples are still in memory, the dashboard isn't -->
+  <div class="last-ride hidden" id="last-ride">
+    <div class="last-ride-label">LAST WORKOUT</div>
+    <div class="last-ride-name" id="last-ride-name">—</div>
+    <div class="last-ride-stats" id="last-ride-stats">—</div>
+    <button class="btn-sm last-ride-export" onclick="exportWorkout()">EXPORT</button>
+  </div>
+
   <div class="connect-divider">OR</div>
 
   <button class="btn-install hidden" id="btn-install" onclick="installApp()">INSTALL APP</button>

@@ -7,9 +7,14 @@
   var intentionalDisconnect = false;
   var reconnecting = false;
 
-  var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // backoff between attempts
   var RECONNECT_WINDOW_MS = 60000;  // wall-clock budget — hard-fail after this
   var reconnectDeadline = 0;
+  var reconnectGen = 0;             // bumped whenever a reconnect loop must die (END WORKOUT, cleanup)
+  var currentAttempt = 0;           // 1-based attempt number shown in the banner
+  var dropIdleS = 0;                // idle seconds at the moment of the drop (asleep tiebreaker)
+  var dropEmitted = false;          // one `disconnect` event per drop: drop | done:asleep
+  var ignoreDisconnects = false;    // a late gattserverdisconnected after the session was closed
+  var hardFailTimer = null;         // inactivity auto-end after a hard fail
   var rideSummaryEmitted = false;   // one ride_complete per connection
   var connectInFlight = false;      // CONNECT double-tap guard; also gates SW-update reloads
   PS.connectInFlight = function() { return connectInFlight; };
@@ -99,20 +104,29 @@
   window.hideNoCadenceHint = hideNoCadenceHint;
 
   // ---- Reconnect Banner ----
-  function showReconnectBanner(msg, showRetry) {
+  // opts.retry → RECONNECT button (hard fail); opts.endWorkout → END WORKOUT button
+  function showReconnectBanner(msg, opts) {
+    opts = opts || {};
     var banners = document.querySelectorAll('.reconnect-banner');
     banners.forEach(function(b) {
       b.textContent = msg || 'Reconnecting...';
-      b.classList.toggle('settled', !!showRetry);
-      if (showRetry) {
-        var btn = document.createElement('button');
-        btn.className = 'banner-btn';
-        btn.textContent = 'RECONNECT';
-        btn.onclick = window.manualReconnect;
-        b.appendChild(btn);
+      b.classList.toggle('settled', !!opts.retry);
+      if (opts.retry || opts.endWorkout) {
+        var actions = document.createElement('div');
+        actions.className = 'banner-actions';
+        if (opts.retry) actions.appendChild(bannerButton('RECONNECT', window.manualReconnect));
+        if (opts.endWorkout) actions.appendChild(bannerButton('END WORKOUT', function() { window.endWorkoutFromBanner(false); }));
+        b.appendChild(actions);
       }
       b.classList.remove('hidden');
     });
+  }
+  function bannerButton(label, onclick) {
+    var btn = document.createElement('button');
+    btn.className = 'banner-btn';
+    btn.textContent = label;
+    btn.onclick = onclick;
+    return btn;
   }
 
   function hideReconnectBanner() {
@@ -233,6 +247,12 @@
       if (window.__pulse) window.__pulse('connect_click', 'ignored:inflight');
       return;
     }
+    // An update held back while the last-workout card was showing applies now —
+    // this tap reloads the page (one extra tap; the samples were about to be superseded)
+    if (s.updatePending && window.PSApplyPendingUpdate) {
+      if (window.__pulse) window.__pulse('connect_click', 'applying_update');
+      if (PSApplyPendingUpdate()) return;
+    }
     connectInFlight = true;
     var btn = document.querySelector('.btn-connect');
     if (btn) btn.disabled = true;
@@ -240,6 +260,7 @@
     var statusEl = document.getElementById('connect-status');
     statusEl.textContent = 'Scanning for device...';
     intentionalDisconnect = false;
+    ignoreDisconnects = false;   // new session
     if (window.__pulse) window.__pulse('connect_click');
     // No awaits between here and requestDevice(): the picker needs the tap's
     // transient user activation, which Chrome expires after ~5s
@@ -311,6 +332,7 @@
       // Track connect event in Pulse — include raw BLE name for unknown models
       if (window.__pulse) window.__pulse('connect', s.equipmentType + ':' + s.bikeModel + ':' + s.bleDevice.name);
       if (window.clearConnectTrouble) clearConnectTrouble();
+      if (window.hideLastRideCard) hideLastRideCard();
 
     } catch(err) {
       if (err.name === 'NotFoundError') {
@@ -334,7 +356,8 @@
       if (btn) btn.disabled = false;
       // An update deferred during the picker/setup is safe to apply if we ended up unconnected
       var connectedNow = !!(s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected);
-      if (s.updatePending && !connectedNow && window.PSApplyPendingUpdate) PSApplyPendingUpdate();
+      var cardShowing = !!(PS.lastRideShowing && PS.lastRideShowing());
+      if (s.updatePending && !connectedNow && !cardShowing && window.PSApplyPendingUpdate) PSApplyPendingUpdate();
     }
   };
 
@@ -453,6 +476,7 @@
   }
 
   function onDisconnect() {
+    if (ignoreDisconnects) { debug('Late disconnect event after the session ended — ignored'); return; }
     stopA0Poll();
     var cls = classifyDrop();   // before telemetry is zeroed
     debug('BLE disconnected', {
@@ -484,15 +508,40 @@
     // Rider finished (post-workout grace, or idle before the drop) — no reconnect loop
     if (cls.kind === 'done') {
       if (window.__pulse) window.__pulse('disconnect', 'done:' + s.equipmentType + ':' + s.bikeModel);
-      fullDisconnectCleanup('Ride ended — equipment disconnected. Tap CONNECT to ride again.');
+      fullDisconnectCleanup('Workout ended — equipment disconnected. Tap CONNECT to start another.');
       return;
     }
 
-    // Unexpected disconnect — try to reconnect inside a fixed wall-clock window
+    // Unexpected disconnect — try to reconnect inside a fixed wall-clock window.
+    // If the rider had been idle a while the equipment may simply have gone to
+    // sleep: hold the drop event until attempt 1 tells us, so one disconnect
+    // produces one event (drop, or done:asleep).
     debug('Unexpected disconnect, attempting reconnect');
+    dropIdleS = cls.idle_s;
+    dropEmitted = false;
+    if (cls.idle_s < PS.DONE_IDLE_FAST_FAIL) emitDrop();
+    startReconnectLoop();
+  }
+
+  function emitDrop() {
+    if (dropEmitted) return;
+    dropEmitted = true;
     if (window.__pulse) window.__pulse('disconnect', 'drop:' + s.equipmentType + ':' + s.bikeModel);
+  }
+
+  function startReconnectLoop() {
     reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
-    attemptReconnect(0);
+    clearHardFailTimer();
+    ignoreDisconnects = false;
+    reconnectGen++;
+    attemptReconnect(0, reconnectGen);
+  }
+
+  // Equipment not advertising: Chrome desktop says "Connection attempt failed",
+  // other platforms just a NetworkError — either way it comes back fast
+  function isNotAdvertising(err) {
+    var m = (err && err.message) || '';
+    return (err && err.name === 'NetworkError') || /connection attempt failed/i.test(m);
   }
 
   // ---- Auto-Reconnect ----
@@ -522,45 +571,81 @@
 
   function hardFailReconnect(attempts) {
     reconnecting = false;
+    emitDrop();
     var elapsed = Math.round((RECONNECT_WINDOW_MS - (reconnectDeadline - Date.now())) / 1000);
     debug('Reconnect hard fail', { attempts: attempts, elapsed_s: elapsed });
     if (window.__pulse) window.__pulse('reconnect_failed', 'attempts:' + attempts + ':elapsed:' + elapsed + 's');
     // The ride is over for summary purposes, and the screen must not stay awake on a dead link
     emitRideComplete();
     releaseWakeLock();
-    // Stay on the dashboard with a manual retry — don't silently dump to the connect screen
-    showReconnectBanner('Connection lost — couldn\'t reconnect. ', true);
+    // Stay on the dashboard with a manual retry — the export lives here. Left
+    // untouched, the banner ends the workout on its own (the 30-min idle timer
+    // only runs while connected, so this state had no exit before).
+    showReconnectBanner('Workout saved — ' + (s.bikeModel || 'equipment') + ' disconnected. ', { retry: true, endWorkout: true });
+    startHardFailTimer();
   }
+
+  // ---- Hard-fail inactivity timer ----
+  function startHardFailTimer() {
+    clearHardFailTimer();
+    hardFailTimer = setTimeout(function() {
+      hardFailTimer = null;
+      window.endWorkoutFromBanner(true);
+    }, PS.HARDFAIL_AUTO_END_MS);
+  }
+  function clearHardFailTimer() {
+    if (hardFailTimer) { clearTimeout(hardFailTimer); hardFailTimer = null; }
+  }
+  // Any tap on the page restarts the countdown
+  document.addEventListener('pointerdown', function() { if (hardFailTimer) startHardFailTimer(); }, true);
 
   window.manualReconnect = function() {
     if (reconnecting || intentionalDisconnect) return;
-    reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
-    showReconnectBanner('Reconnecting...');
-    attemptReconnect(0);
+    startReconnectLoop();
   };
 
-  async function attemptReconnect(attempt) {
-    if (intentionalDisconnect) return;
-    if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt); return; }
+  // END WORKOUT from the reconnect / hard-fail banner (auto = inactivity timer)
+  window.endWorkoutFromBanner = function(auto) {
+    var tag = auto ? 'auto' : 'attempt' + (currentAttempt || 1);
+    reconnectGen++;               // an in-flight attempt bails at its next check
+    intentionalDisconnect = true; // and the wait-phase check
+    reconnecting = false;
+    clearHardFailTimer();
+    if (window.__pulse) window.__pulse('disconnect', 'ended:' + s.equipmentType + ':' + s.bikeModel + ':' + tag);
+    dropEmitted = true;           // a still-held drop is accounted for by this event
+    fullDisconnectCleanup('Workout ended. Tap CONNECT to start another.');
+  };
+
+  async function attemptReconnect(attempt, gen) {
+    if (gen !== reconnectGen || intentionalDisconnect) return;
+    if (attempt >= PS.RECONNECT_MAX_ATTEMPTS || Date.now() >= reconnectDeadline) { hardFailReconnect(attempt); return; }
+    currentAttempt = attempt + 1;
 
     reconnecting = true;
     var remaining = reconnectDeadline - Date.now();
-    var delay = Math.min(RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)],
+    var delays = PS.RECONNECT_DELAYS;
+    var delay = Math.min(delays[Math.min(attempt, delays.length - 1)],
                          Math.max(remaining - 5000, 500));
-    showReconnectBanner('Reconnecting' + '.'.repeat((attempt % 3) + 1) + ' (attempt ' + (attempt + 1) + ')');
+    showReconnectBanner((s.bikeModel || 'Equipment') + ' not responding — retrying (' + (attempt + 1) + ' of ' + PS.RECONNECT_MAX_ATTEMPTS + ')', { endWorkout: true });
     debug('Reconnect attempt ' + (attempt + 1), { delay: delay, remaining_ms: remaining });
 
     // Wait before retry
     await new Promise(function(r) { setTimeout(r, delay); });
 
-    // Check if user disconnected while we were waiting
-    if (intentionalDisconnect) { reconnecting = false; return; }
+    // The loop may have been ended (END WORKOUT / cleanup) or the user disconnected while we waited
+    if (gen !== reconnectGen || intentionalDisconnect) { reconnecting = false; return; }
     if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt + 1); return; }
 
+    var started = Date.now();
     try {
       if (!s.bleDevice) throw new Error('No device reference');
 
       var server = await connectWithTimeout(reconnectDeadline - Date.now());
+      if (gen !== reconnectGen) {
+        // END WORKOUT won the race — let go of the link we just made, quietly
+        try { s.bleDevice.gatt.disconnect(); } catch(e) {}
+        return;
+      }
       debug('GATT reconnected on attempt ' + (attempt + 1));
       // New capture leg — the previous one ended at PSDiag.disconnected()
       if (window.PSDiag) {
@@ -574,6 +659,8 @@
       s.writeChar = chars.writeChar;
 
       // Success — hide banner, log it
+      emitDrop();              // a held drop that recovered still counts as a drop
+      clearHardFailTimer();
       hideReconnectBanner();
       reconnecting = false;
       acquireWakeLock();
@@ -582,9 +669,22 @@
       if (window.__pulse) window.__pulse('reconnect_ok', 'attempt:' + (attempt + 1));
 
     } catch(err) {
-      debug('Reconnect attempt ' + (attempt + 1) + ' failed', err.message);
-      if (Date.now() >= reconnectDeadline) { hardFailReconnect(attempt + 1); return; }
-      attemptReconnect(attempt + 1);
+      if (gen !== reconnectGen) return;
+      var took = Date.now() - started;
+      debug('Reconnect attempt ' + (attempt + 1) + ' failed', { err: err.message, took_ms: took });
+      // Asleep-equipment tiebreaker: the rider was idle when the link dropped and
+      // the device isn't advertising — it went to sleep. That's a finished workout,
+      // not a connection problem, and nobody should watch five retries for it.
+      if (attempt === 0 && dropIdleS >= PS.DONE_IDLE_FAST_FAIL && took <= 3000 && isNotAdvertising(err)) {
+        reconnecting = false;
+        dropEmitted = true;
+        if (window.__pulse) window.__pulse('disconnect', 'done:' + s.equipmentType + ':' + s.bikeModel + ':asleep');
+        fullDisconnectCleanup('Workout ended — equipment disconnected. Tap CONNECT to start another.');
+        return;
+      }
+      emitDrop();   // the loop goes on: this is a real drop
+      if (attempt + 1 >= PS.RECONNECT_MAX_ATTEMPTS || Date.now() >= reconnectDeadline) { hardFailReconnect(attempt + 1); return; }
+      attemptReconnect(attempt + 1, gen);
     }
   }
 
@@ -618,6 +718,8 @@
   // msg: optional connect-status text (callers that pass nothing keep the old copy)
   function fullDisconnectCleanup(msg) {
     reconnecting = false;
+    reconnectGen++;            // any reconnect loop still running dies at its next check
+    clearHardFailTimer();
     stopA0Poll();
     releaseWakeLock();
     hideReconnectBanner();
@@ -642,9 +744,15 @@
       : 'Disconnected — power on your device and reconnect.');
     location.hash = 'connect';
     if (window.armConnectTrouble) armConnectTrouble();
+    ignoreDisconnects = true;  // the session is closed; a late GATT event must not re-run this
+    // The workout's samples are still in memory but the dashboard (and its EXPORT)
+    // is gone — offer the summary + export on the connect screen instead
+    var cardShown = !!(window.showLastRideCard && showLastRideCard());
     // An update that arrived mid-ride was deferred to here (ride_complete already
-    // beaconed). Otherwise the connect screen is back — a good moment to look for one.
-    var reloading = !!(window.PSApplyPendingUpdate && PSApplyPendingUpdate());
+    // beaconed). A reload would wipe the samples behind the card, so while it's
+    // showing the update waits for the next CONNECT tap. Otherwise the connect
+    // screen is back — a good moment to look for one.
+    var reloading = !cardShown && !!(window.PSApplyPendingUpdate && PSApplyPendingUpdate());
     if (!reloading && window.PSCheckForUpdate) PSCheckForUpdate();
   }
 

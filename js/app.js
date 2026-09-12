@@ -100,9 +100,49 @@
     }
   };
 
+  // ---- Last-workout card (connect screen) ----
+  // After a workout ends the samples are still in memory but the dashboard — and
+  // its EXPORT button — is gone. Show the summary and the export on the connect screen.
+  function avg(arr) {
+    if (!arr || !arr.length) return 0;
+    var t = 0;
+    for (var i = 0; i < arr.length; i++) t += arr[i];
+    return t / arr.length;
+  }
+
+  window.showLastRideCard = function() {
+    var el = document.getElementById('last-ride');
+    if (!el) return false;
+    if (!s.recordedPoints || s.recordedPoints.length < 2) { el.classList.add('hidden'); return false; }
+    var stats;
+    if (s.equipmentType === 'rower') {
+      stats = PS.formatTime(s.rideElapsed) + ' · ' + Math.round(s.rowerDistance) + ' m · avg split ' + PS.formatSplit(Math.round(avg(s.rowerSplitSamples)));
+    } else if (s.equipmentType === 'treadmill') {
+      stats = PS.formatTime(s.rideElapsed) + ' · ' + s.totalDistance.toFixed(2) + ' mi · avg ' + (Math.round(avg(s.treadSpeedSamples) * 10) / 10) + ' mph';
+    } else {
+      stats = PS.formatTime(s.rideElapsed) + ' · ' + s.totalDistance.toFixed(1) + ' km · avg ' + Math.round(avg(s.powerSamples)) + ' W';
+    }
+    document.getElementById('last-ride-name').textContent =
+      (s.bikeModel || 'Equipment') + (s.bleDevice && s.bleDevice.name ? ' — ' + s.bleDevice.name : '');
+    document.getElementById('last-ride-stats').textContent = stats;
+    el.classList.remove('hidden');
+    return true;
+  };
+
+  window.hideLastRideCard = function() {
+    var el = document.getElementById('last-ride');
+    if (el) el.classList.add('hidden');
+  };
+
+  PS.lastRideShowing = function() {
+    var el = document.getElementById('last-ride');
+    return !!(el && !el.classList.contains('hidden'));
+  };
+
   // ---- Reset Ride ----
   window.resetRide = function() {
     if (PS.resetRideSummaryFlag) PS.resetRideSummaryFlag();
+    if (window.hideLastRideCard) hideLastRideCard();
     s.rideStart = 0;
     s.rideElapsed = 0;
     s.rideActive = false;

@@ -284,6 +284,20 @@ body {
   margin-top: 16px;
 }
 .connect-help a { color: var(--gold); text-decoration: none; }
+.last-ride {
+  width: 100%;
+  max-width: 320px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--gold-dim);
+  text-align: left;
+}
+.last-ride-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.15em; color: var(--gold); margin-bottom: 6px; }
+.last-ride-name { font-size: 0.95rem; font-weight: 600; color: var(--text); }
+.last-ride-stats { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); margin: 4px 0 12px; }
+.last-ride-export { flex: none; width: 100%; }
 .connect-trouble {
   font-size: 0.8rem;
   color: var(--text);
@@ -891,6 +905,10 @@ body {
 
 /* Reconnect banner */
 .reconnect-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
   padding: 10px 16px;
   margin-bottom: 8px;
   background: rgba(255, 61, 0, 0.08);
@@ -899,6 +917,12 @@ body {
   color: var(--red);
   letter-spacing: 0.04em;
   animation: reconnect-pulse 1.5s ease-in-out infinite;
+}
+/* Buttons travel together: beside the message when they fit, else as a row beneath it */
+.reconnect-banner .banner-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
 }
 .no-cadence-hint {
   display: flex;
@@ -915,7 +939,6 @@ body {
 }
 .reconnect-banner.settled { animation: none; }
 .reconnect-banner .banner-btn {
-  margin-left: 10px;
   background: var(--red);
   color: #fff;
   border: none;

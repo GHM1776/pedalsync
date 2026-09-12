@@ -177,7 +177,8 @@
     // Idle = not connected and not mid-connect (a reload during the picker or
     // setupGATT would kill the connect in progress)
     var inFlight = !!(PS.connectInFlight && PS.connectInFlight());
-    if (!isConnected() && !inFlight) { reloadForUpdate(); return; }
+    var holding = !!(PS.lastRideShowing && PS.lastRideShowing());   // unexported workout on the connect screen
+    if (!isConnected() && !inFlight && !holding) { reloadForUpdate(); return; }
     // Mid-ride a reload would kill the BLE session and the in-memory ride
     // samples — fullDisconnectCleanup() applies it once the ride is over.
     s.updatePending = true;
