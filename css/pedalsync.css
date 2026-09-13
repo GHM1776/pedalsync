@@ -115,6 +115,7 @@ body {
   line-height: 1.8;
 }
 .gate-note.ok { color: var(--green); }
+.gate-note.no { color: var(--red); }
 .gate-features {
   list-style: none;
   text-align: center;
@@ -188,6 +189,10 @@ body {
 .equip-status.coming {
   color: var(--gold);
   border: 1px solid var(--gold-dim);
+}
+.equip-status.no {
+  color: var(--red);
+  border: 1px solid var(--red);
 }
 .equip-name {
   font-size: 1.1rem;

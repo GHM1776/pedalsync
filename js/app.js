@@ -257,15 +257,17 @@
   // ---- Browser Support Note + Support Mail Prefill ----
   // Also called from connectBike() after model detection so the equipment line fills in.
   window.initSupportUI = function() {
-    // Landing note reflects whether THIS browser can actually connect
+    // Landing note under CONNECT reflects whether THIS browser can actually connect.
+    // The always-visible BROWSER & DEVICE SUPPORT cards carry the general rule.
     var note = document.getElementById('gate-note');
     if (note) {
       if (navigator.bluetooth) {
         note.textContent = '✓ This browser supports Bluetooth — you\'re good to go.';
         note.classList.add('ok');
       } else {
-        note.textContent = 'This browser can\'t connect — iPhone/iPad and Firefox don\'t support ' +
+        note.textContent = '✕ This browser can\'t connect — iPhone/iPad, Safari, and Firefox don\'t support ' +
           'Web Bluetooth. Use Chrome or Edge on Android, Windows, Mac, or ChromeOS.';
+        note.classList.add('no');
       }
     }
 
