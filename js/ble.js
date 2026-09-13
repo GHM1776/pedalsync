@@ -232,7 +232,7 @@
     s.autoDisconnected = false;
     rideSummaryEmitted = false;  // new connection = a new ride to summarize
     s.lastRevCount = 0; s.revStaticSince = 0;
-    s.d2Count = 0; s.lastD2Value = -1; s.d2ChangedSinceConnect = false; s.noCadenceFired = false;
+    s.d2Count = 0; s.lastD2Value = -1; s.lastD2ChangeTime = 0; s.noCadenceFired = false;
     hideNoCadenceHint();
     resetPacketStats();
 
@@ -942,11 +942,15 @@
     if (data[1] === 0xD1 && data.length >= 11) {
       s.cadence = (data[9] << 8) | data[10];
 
-      // Revolution counter (bytes 7-8). A bike streaming D1 with this stuck at 0
-      // while the rider interacts is reporting "no pedal motion" — updateBikeDisplay
-      // turns that into a hint + no_cadence event.
+      // Revolution counter (bytes 7-8). Static for 60s+ while the rider is clearly
+      // there (workout running, or the knob turned after it froze) = the speed
+      // sensor isn't reporting — never counted, or froze mid-ride (Phoenix EX-5:
+      // 138 revs, then 30 minutes of knob turns on a dead counter). updateBikeDisplay
+      // turns that into the hint + no_cadence event, once per freeze; the counter
+      // moving again clears the hint and re-arms it.
       var revs = (data[7] << 8) | data[8];
       if (s.revStaticSince === 0 || revs !== s.lastRevCount) {
+        if (s.noCadenceFired) { s.noCadenceFired = false; hideNoCadenceHint(); }
         s.lastRevCount = revs;
         s.revStaticSince = now;
       }
@@ -983,7 +987,7 @@
     } else if (data[1] === 0xD2 && data.length >= 4) {
       var newR = data[3];
       // A D2 carrying a different value than the previous D2 = the knob was turned
-      if (s.d2Count > 0 && newR !== s.lastD2Value) s.d2ChangedSinceConnect = true;
+      if (s.d2Count > 0 && newR !== s.lastD2Value) s.lastD2ChangeTime = now;
       s.d2Count++;
       s.lastD2Value = newR;
       if (newR > 50) {

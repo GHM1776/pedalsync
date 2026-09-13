@@ -169,6 +169,8 @@
     return type === 'D1' || type === 'D2' || type === 'D3';
   }
 
+  var NO_CADENCE_STATIC_S = 60;   // mirrors PS.NO_CADENCE_AFTER_S (ble.js hint); this file stays standalone
+
   function now() { return Date.now(); }
   function rel(t) { return st && st.t0 ? +((t - st.t0) / 1000).toFixed(3) : 0; }
 
@@ -187,7 +189,8 @@
       byHandle: {},                // handle -> count
       badCksum: 0,
       e0: { count: 0, firstAt: null, lastAt: null, afterKey: 0, afterEnable: 0, unique: {} },
-      d1: { total: 0, zeroMotion: 0 },   // bike D1 with revolutions AND cadence both 0
+      d1: { total: 0, zeroMotion: 0, revs: null, revsStaticAt: null, lastAt: null },   // zeroMotion: revs AND cadence both 0; revs/revsStaticAt: counter value + when it last changed
+      d2: { total: 0, last: -1, changes: 0, lastChangeAt: null },                       // resistance changes = the knob was turned
       unknownPkts: [],                    // last 20 unknown F0 types verbatim
       frames: { ok: 0, abandoned: 0, pending: null },   // split-frame tracking (rower D1 = 10 + 11)
       unlock: null,                // {challenge, sentAt, ms, ok, status, key, framed, serverDiag, error}
@@ -218,15 +221,32 @@
   //   app         — our client logic never did its part
   //   ok          — telemetry flowing
 
+  // Seconds the D1 revolution counter has held its current value, as of the last D1
+  function revsStaticS() {
+    if (st.d1.lastAt == null || st.d1.revsStaticAt == null) return 0;
+    return (st.d1.lastAt - st.d1.revsStaticAt) / 1000;
+  }
+
   function verdict() {
     if (!st) return { side: 'unknown', code: 'no_session' };
     if (st.firstTelemetryAt) {
-      // Bike streaming D1 the whole session with revs and cadence both 0 is the
-      // bike reporting "no pedal motion" (seen on Connect / EX-5; QZ #4218/#4221).
-      // Bikes only — rower/treadmill D1 use those bytes differently.
+      // Bike "no pedal motion" (seen on Connect / EX-5; QZ #4218/#4221). Bikes only —
+      // rower/treadmill D1 use those bytes differently. Two shapes:
+      //   never — every D1 carried revs 0 and cadence 0
+      //   mid   — the counter froze after counting and stayed put for 60s+ of D1
+      //           while the knob was turned in that window (Phoenix EX-5: frozen
+      //           at 138 with 30 resistance changes over 30 minutes)
       var isBike = /^ECH(EX|-)/i.test(st.device || '');
-      if (isBike && st.total >= 30 && st.d1.total > 0 && st.d1.zeroMotion === st.d1.total) {
-        return { side: 'bike', code: 'no_cadence', why: 'D1 streaming but revolutions and cadence stayed 0', d1: st.d1.total };
+      if (isBike && st.d1.total >= 30) {
+        if (st.d1.zeroMotion === st.d1.total) {
+          return { side: 'bike', code: 'no_cadence', mode: 'never', why: 'D1 streaming but revolutions and cadence stayed 0', d1: st.d1.total };
+        }
+        var staticS = revsStaticS();
+        if (staticS >= NO_CADENCE_STATIC_S && st.d2.lastChangeAt != null && st.d2.lastChangeAt > st.d1.revsStaticAt) {
+          return { side: 'bike', code: 'no_cadence', mode: 'mid',
+                   why: 'revolution counter frozen at ' + st.d1.revs + ' for ' + Math.round(staticS) + 's while resistance changed',
+                   revs: st.d1.revs, static_s: Math.round(staticS), d2_changes: st.d2.changes, d1: st.d1.total };
+        }
       }
       // Telemetry flowed, but something worth a look showed up
       var unknownCount = 0;
@@ -320,6 +340,9 @@
       first_telemetry_type: st.firstTelemetryType,
       d1_total: st.d1.total,
       d1_zero_motion: st.d1.zeroMotion,
+      revs_final: st.d1.revs,                    // last revolution-counter value — a frozen counter is readable without decoding hex
+      revs_static_s: Math.round(revsStaticS()),  // how long it has held that value, as of the last D1
+      d2_changes: st.d2.changes,
       unknown_pkts: st.unknownPkts,
       frames_ok: st.frames.ok,
       frames_abandoned: st.frames.abandoned,
@@ -429,7 +452,15 @@
 
       if (type === 'D1' && b.length >= 11) {
         st.d1.total++;
-        if (((b[7] << 8) | b[8]) === 0 && ((b[9] << 8) | b[10]) === 0) st.d1.zeroMotion++;
+        var revs = (b[7] << 8) | b[8];
+        if (revs === 0 && ((b[9] << 8) | b[10]) === 0) st.d1.zeroMotion++;
+        if (st.d1.revs === null || revs !== st.d1.revs) { st.d1.revs = revs; st.d1.revsStaticAt = t; }
+        st.d1.lastAt = t;
+      }
+      if (type === 'D2' && b.length >= 4) {
+        if (st.d2.total > 0 && b[3] !== st.d2.last) { st.d2.changes++; st.d2.lastChangeAt = t; }
+        st.d2.total++;
+        st.d2.last = b[3];
       }
 
       if (isTelemetry(type) && st.firstTelemetryAt == null) {

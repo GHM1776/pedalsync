@@ -14,7 +14,7 @@ PS.API_BASE = location.origin;
 
 // Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
 // Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
-PS.BUILD = 'v16';
+PS.BUILD = 'v17';
 
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
@@ -27,7 +27,7 @@ PS.RECONNECT_MAX_ATTEMPTS   = 5;    // attempts inside the 60s reconnect window 
 PS.RECONNECT_DELAYS         = [1000, 2000, 4000, 8000, 15000];  // ms backoff between attempts
 PS.HARDFAIL_AUTO_END_MS     = 5 * 60 * 1000;  // an untouched hard-fail banner ends the workout after this
 PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
-PS.NO_CADENCE_AFTER_S       = 60;   // bike streaming D1 with revolutions stuck at 0 this long = "no pedal motion"
+PS.NO_CADENCE_AFTER_S       = 60;   // bike D1 revolution counter static this long (never counted, or froze mid-ride) with the rider interacting = "no pedal motion"
 
 // ---- Optional: mirror the official app's BLE init chatter (ship OFF) ----
 // From a snoop of the Echelon app: A1 x4, A3, A1, B0, then an A0 poll every 2s.
@@ -53,11 +53,11 @@ PS.state = {
 
   // Bike "no pedal motion" detection (D1 revolution counter, bytes 7-8)
   lastRevCount: 0,
-  revStaticSince: 0,           // unix sec the rev count last changed (or was first seen)
+  revStaticSince: 0,           // unix sec the rev count last changed (or was first seen) = start of the current freeze
   d2Count: 0,                  // D2 packets this connection
   lastD2Value: -1,
-  d2ChangedSinceConnect: false, // a D2 arrived with a different value than the previous one = knob turned
-  noCadenceFired: false,       // hint + event fired once this connection
+  lastD2ChangeTime: 0,         // unix sec a D2 last carried a different resistance than the one before = knob turned
+  noCadenceFired: false,       // hint + event fired for the current freeze; re-armed when the counter moves
 
   // Telemetry (bike)
   cadence: 0,
