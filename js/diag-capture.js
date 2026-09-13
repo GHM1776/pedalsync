@@ -101,7 +101,7 @@
           session: data.session, device: data.device, phase: data.phase,
           elapsed_s: data.elapsed_s, total_pkts: data.total_pkts,
           counts: data.counts, e0: data.e0, unlock: data.unlock,
-          verdict: data.verdict, reason: data.reason,
+          verdict: data.verdict, reason: data.reason, init_mode: data.init_mode,
           packets_sent_separately: pkts.length,
         };
       }
@@ -197,6 +197,7 @@
       writes: [],                  // [{label, hex, t, ok, err}]
       keyWrittenAt: null,
       enableAt: null,
+      initMode: 'b0',              // 'full' once an init_a1/init_a3 write is seen (PS.ECHELON_FULL_INIT)
       firstTelemetryAt: null,
       firstTelemetryType: null,
       lastPkt: null,
@@ -336,6 +337,7 @@
       writes: st.writes,
       key_written_s: st.keyWrittenAt != null ? rel(st.keyWrittenAt) : null,
       enable_s: st.enableAt != null ? rel(st.enableAt) : null,
+      init_mode: st.initMode,                    // 'full' (A1x4, A3, A1, B0 + A0 poll) or 'b0' — splits sessions in Pulse
       first_telemetry_s: st.firstTelemetryAt != null ? rel(st.firstTelemetryAt) : null,
       first_telemetry_type: st.firstTelemetryType,
       d1_total: st.d1.total,
@@ -550,6 +552,7 @@
       if (label === 'cmd_enable') {
         if (ok) { st.enableAt = t; st.e0.afterEnable = 0; armWatchdog(); }
       }
+      if (label === 'init_a1' || label === 'init_a3') st.initMode = 'full';
       if (!ok) emit('write_failed', 'Write ' + label + ' failed | ' + rec.err, rec);
     },
 

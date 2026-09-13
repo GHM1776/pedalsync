@@ -10,6 +10,8 @@
 //   C. rest with nothing touched (last knob turn was BEFORE this freeze) → no hint, diag stays ok
 //   D. workout running is enough on its own (no knob)
 //   E. new connection whose counter never leaves 0 → no_cadence never:<model>:<n>s, diag mode=never
+//   Also: the official-app init sequence (A1x4, A3, A1, B0) + A0 keepalive run on connect and the
+//   diag head says init_mode=full; with PS.ECHELON_FULL_INIT=false (rollback) it is B0 only, init_mode=b0
 const fs = require('fs');
 const path = require('path');
 const J = path.join(__dirname, '..', 'js');
@@ -108,6 +110,14 @@ async function connect(firstRevs, firstCad) {
   // ---- A. froze mid-ride, knob turned after the freeze ----
   await connect(1, 75);
   check('A. connected, hint hidden', device.gatt.connected && !hintShown());
+  await new Promise(r => setTimeout(r, 2200));   // one A0 poll interval (real timer)
+  const writes0 = PSDiag.snapshot(false).writes;
+  const initLabels = writes0.filter(w => w.label !== 'poll_a0').map(w => w.label).join(',');
+  const poll0 = writes0.find(w => w.label === 'poll_a0');
+  check('init: A1x4, A3, A1, B0 written in order on connect (ECHELON_FULL_INIT on)',
+    initLabels === 'init_a1,init_a1,init_a1,init_a1,init_a3,init_a1,cmd_enable', initLabels);
+  check('init: A0 keepalive poll running (first poll F0 A0 01 00 91)', !!poll0 && /f0 ?a0 ?01 ?00 ?91/i.test(poll0.hex), poll0);
+  check('init: diag head init_mode=full', PSDiag.snapshot(false).init_mode === 'full');
   device.f4.emit(D2(10));                       // baseline resistance (first D2 is never a "change")
   for (let r = 2; r <= 40; r++) tick(r, 75, 1); // 40 s of honest counting
   check('A. counting: hint hidden, no event', !hintShown() && events().length === 0);
@@ -157,7 +167,10 @@ async function connect(firstRevs, firstCad) {
   disconnectBike();
   await new Promise(r => setTimeout(r, 50));
   pulse.length = 0;
+  PS.ECHELON_FULL_INIT = false;                  // the rollback path: B0 only, no poll
   await connect(0, 0);
+  const writesE = PSDiag.snapshot(false).writes.map(w => w.label).join(',');
+  check('rollback: ECHELON_FULL_INIT=false → cmd_enable only, init_mode=b0', writesE === 'cmd_enable' && PSDiag.snapshot(false).init_mode === 'b0', writesE);
   check('E. reconnected, hint hidden, per-connection state reset', device.gatt.connected && !hintShown() && s.lastRevCount === 0 && s.noCadenceFired === false && s.lastD2ChangeTime === 0);
   device.f4.emit(D2(10));
   tick(0, 0, 30);

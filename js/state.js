@@ -14,7 +14,7 @@ PS.API_BASE = location.origin;
 
 // Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
 // Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
-PS.BUILD = 'v17';
+PS.BUILD = 'v18';
 
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
@@ -29,11 +29,14 @@ PS.HARDFAIL_AUTO_END_MS     = 5 * 60 * 1000;  // an untouched hard-fail banner e
 PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
 PS.NO_CADENCE_AFTER_S       = 60;   // bike D1 revolution counter static this long (never counted, or froze mid-ride) with the rider interacting = "no pedal motion"
 
-// ---- Optional: mirror the official app's BLE init chatter (ship OFF) ----
-// From a snoop of the Echelon app: A1 x4, A3, A1, B0, then an A0 poll every 2s.
-// B0 alone streams fine on every bike seen so far; this exists to test whether
-// the Connect Sport's "no motion" state is something the app's chatter avoids.
-PS.ECHELON_FULL_INIT = false;
+// ---- Mirror the official app's BLE init chatter (ON since v18) ----
+// From a snoop of the Echelon app: A1 x4, A3, A1, B0, then an A0 poll every 2s
+// (bytes verified against QZ's btinit()/sendPoll()). B0 alone streams on every
+// bike seen so far; the poll is on to learn whether it keeps the speed sensor
+// reporting (Phoenix EX-5 froze mid-ride twice on B0 alone). Diag snapshots
+// carry init_mode 'full' | 'b0' so Pulse can split the fleet. Rollback = false
+// here plus a cache bump.
+PS.ECHELON_FULL_INIT = true;
 PS.CMD_INIT_A1 = new Uint8Array([0xF0, 0xA1, 0x00, 0x91]);
 PS.CMD_INIT_A3 = new Uint8Array([0xF0, 0xA3, 0x00, 0x93]);
 PS.A0_POLL_MS  = 2000;
