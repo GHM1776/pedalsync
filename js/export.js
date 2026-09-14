@@ -147,8 +147,8 @@
   // ---- Download TCX file ----
   window.exportWorkout = function() {
     if (s.recordedPoints.length < 2) {
-      alert('Not enough data to export. Ride for at least 10 seconds.');
-      if (window.__pulse) window.__pulse('debug', 'Export failed: only ' + s.recordedPoints.length + ' points');
+      alert('Nothing to export yet — try again after a minute of your workout.');
+      if (window.__pulse) window.__pulse('export', s.equipmentType + ':empty');
       return;
     }
 

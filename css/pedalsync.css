@@ -929,6 +929,12 @@ body {
   gap: 8px;
   margin-left: auto;
 }
+.connect-trouble-lead {
+  margin: 0 0 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--gold-dim);
+  color: var(--text);
+}
 .no-cadence-hint {
   display: flex;
   align-items: center;

@@ -95,10 +95,39 @@ check('resetStats zeroes every counter, the gap clock and unknown types',
 F.onBLEData(ev(bikeD1));
 check('first packet after reset counts from 1 with no gap', F.stats.total === 1 && F.stats.gaps === 0);
 
-// ---- 7. PS.BUILD must track sw.js CACHE_NAME (SW reload loop guard) ----
+// ---- 7. one build string, three files ----
+// PS.BUILD drives the reload loop guard, CACHE_NAME drives the worker swap, and
+// api/version.js is what open tabs poll to learn a deploy happened. If they
+// drift, stale tabs either never update or reload in a circle.
 const swSrc = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
 const cacheName = (swSrc.match(/CACHE_NAME = 'pedalsync-(v\d+)'/) || [])[1];
 check('PS.BUILD equals sw.js CACHE_NAME (' + cacheName + ')', !!cacheName && PS.BUILD === cacheName);
+const verSrc = fs.readFileSync(path.join(__dirname, '..', 'api', 'version.js'), 'utf8');
+const apiBuild = (verSrc.match(/const BUILD = '(v\d+)'/) || [])[1];
+check('api/version.js BUILD equals PS.BUILD (' + apiBuild + ')', !!apiBuild && apiBuild === PS.BUILD);
+
+// ---- 8. A0/A1/A3 are our own writes echoed back, not anomalies ----
+// With ECHELON_FULL_INIT on, an EX-5S echoed 60 A0 keepalives in 81 seconds —
+// 42% of the stream. Counted as "unknown" they exhaust the 10-line log cap and
+// the 20-slot diag ring buffer, fire unknown_packet for nothing, and dilute the
+// checksum error rate.
+F.resetStats();
+s.equipmentType = 'bike';
+const echoA0 = () => cks([0xF0, 0xA0, 0x01, 0x2B, 0]);                                  // our keepalive, counter 0x2B
+const echoA1 = () => cks([0xF0, 0xA1, 0x06, 0x01, 0x0B, 0x00, 0x33, 0x0C, 0x03, 0]);    // status/config frame
+const echoA3 = () => cks([0xF0, 0xA3, 0x02, 0x20, 0x01, 0]);
+[echoA0(), echoA0(), echoA1(), echoA3()].forEach((p) => F.onBLEData(ev(p, PS.ECH_NOTIFY1)));
+check('A0/A1/A3 land in the echo bucket, never in unknown', F.stats.echo === 4 && F.stats.unknown === 0,
+  { echo: F.stats.echo, unknown: F.stats.unknown });
+check('echo counted per type', F.stats.echoTypes['0xa0'] === 2 && F.stats.echoTypes['0xa1'] === 1 && F.stats.echoTypes['0xa3'] === 1, F.stats.echoTypes);
+check('echoes are still valid frames (good, no bad checksums)', F.stats.good === 4 && F.stats.badChecksum === 0,
+  { good: F.stats.good, bad: F.stats.badChecksum });
+check('a genuinely unknown type still reports', (function() {
+  F.onBLEData(ev(cks([0xF0, 0x8B, 0x02, 0xAA, 0xBB, 0]), PS.ECH_NOTIFY1));
+  return F.stats.unknown === 1 && F.stats.echo === 4;
+})(), { unknown: F.stats.unknown, echo: F.stats.echo });
+F.resetStats();
+check('resetStats clears the echo bucket too', F.stats.echo === 0 && Object.keys(F.stats.echoTypes).length === 0);
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nALL PASS');
 process.exit(fail ? 1 : 0);

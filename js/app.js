@@ -9,6 +9,23 @@
   // connection, surface help and record that it happened.
   var troubleTimer = null;
 
+  // EX-5S/EX-7S/GT+/Stride have a built-in screen whose Echelon app holds the
+  // BLE link — one Hermosillo user burned three connect attempts on it in four
+  // minutes. Lead with that when the equipment has a screen, or once any connect
+  // attempt has failed (the same symptom on a model we don't recognise yet).
+  window.updateTroubleLead = function() {
+    var lead = document.getElementById('connect-trouble-tablet');
+    if (!lead) return;
+    var name = (s.bleDevice && s.bleDevice.name) || '';
+    if (!name) { try { name = localStorage.getItem('ps_last_device') || ''; } catch(e) { /* private mode */ } }
+    var hasScreen = /EX-5S|EX-7S|GT\+|STRIDE/i.test(name);
+    var show = hasScreen || s.connectFailures > 0;
+    lead.classList.toggle('hidden', !show);
+    // The lead says this better — don't repeat it as a dimmer bullet below
+    var li = document.getElementById('trouble-li-tablet');
+    if (li) li.classList.toggle('hidden', show);
+  };
+
   window.armConnectTrouble = function() {
     if (troubleTimer) clearTimeout(troubleTimer);
     var el = document.getElementById('connect-trouble');
@@ -17,6 +34,7 @@
       troubleTimer = null;
       var screen = document.getElementById('connect-screen');
       if (!el || !screen || screen.style.display === 'none' || screen.style.display === '') return;
+      updateTroubleLead();
       el.classList.remove('hidden');
       if (window.__pulse) window.__pulse('connect_trouble_shown', navigator.bluetooth ? 'ble_ok' : 'no_ble');
     }, 60000);
@@ -37,11 +55,12 @@
     // The pv /#connect moment: look for a newer service worker now, not on the
     // CONNECT tap (nothing may delay requestDevice())
     if (window.PSCheckForUpdate) PSCheckForUpdate();
+    if (window.PSCheckVersion) PSCheckVersion();
 
     // Check Web Bluetooth support
     if (!navigator.bluetooth) {
       document.getElementById('ble-warning').textContent =
-        'This browser can\'t connect — iPhone/iPad and Firefox don\'t support Web Bluetooth. ' +
+        'This browser can\'t connect — iPhone/iPad, Safari, and Firefox don\'t support Web Bluetooth. ' +
         'Use Chrome or Edge on Android, Windows, Mac, or ChromeOS.';
       document.querySelector('.btn-connect').disabled = true;
     }
@@ -306,6 +325,10 @@
   // ---- Init ----
   window.addEventListener('DOMContentLoaded', function() {
     getUserId();
+    // Which build this session is actually running. Without it there is no way
+    // to see how much of the fleet is stuck on an old one, or whether the
+    // version poller is draining it.
+    if (window.__pulse) window.__pulse('build', PS.BUILD);
     maybeShowSupportBanner();
     initSupportUI();
     checkDemoMode();

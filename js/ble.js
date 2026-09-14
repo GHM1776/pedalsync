@@ -279,6 +279,9 @@
 
       statusEl.textContent = 'Found ' + s.bleDevice.name + ', connecting...';
       debug('Device found', s.bleDevice.name);
+      // Remembered for the built-in-tablet hint on a later visit ("the last
+      // device name seen"); set here so a failed GATT connect still counts.
+      try { localStorage.setItem('ps_last_device', s.bleDevice.name || ''); } catch(e) { /* private mode */ }
       if (window.PSDiag) PSDiag.begin(s.bleDevice.name);
 
       s.bleDevice.removeEventListener('gattserverdisconnected', onDisconnect);
@@ -331,6 +334,7 @@
 
       // Track connect event in Pulse — include raw BLE name for unknown models
       if (window.__pulse) window.__pulse('connect', s.equipmentType + ':' + s.bikeModel + ':' + s.bleDevice.name);
+      s.connectFailures = 0;
       if (window.clearConnectTrouble) clearConnectTrouble();
       if (window.hideLastRideCard) hideLastRideCard();
 
@@ -342,14 +346,17 @@
         if (pickerSec >= 8) {
           statusEl.textContent = 'No device found. Make sure the equipment is powered on and awake, and no other app or tablet is connected to it.';
           if (window.__pulse) window.__pulse('picker_empty', pickerSec + 's');
+          s.connectFailures++;   // nothing advertised: a tablet holding the link looks exactly like this
         } else {
           statusEl.textContent = 'No device selected. Tap CONNECT to try again.';
-          if (window.__pulse) window.__pulse('picker_cancel', pickerSec + 's');
+          if (window.__pulse) window.__pulse('picker_cancel', pickerSec + 's');   // the user closed the picker — not a failure
         }
       } else {
         statusEl.textContent = 'Error: ' + err.message;
         debug('Connect error', err.message);
+        s.connectFailures++;
       }
+      if (window.updateTroubleLead) updateTroubleLead();
       console.error('BLE error:', err);
     } finally {
       connectInFlight = false;
@@ -754,6 +761,7 @@
     // screen is back — a good moment to look for one.
     var reloading = !cardShown && !!(window.PSApplyPendingUpdate && PSApplyPendingUpdate());
     if (!reloading && window.PSCheckForUpdate) PSCheckForUpdate();
+    if (!reloading && window.PSCheckVersion) PSCheckVersion();
   }
 
   // ---- Voluntary Disconnect (user-initiated) ----
@@ -770,8 +778,8 @@
 
   // ---- BLE Data Parsing ----
   // Packet health tracking
-  var packetStats = { total: 0, good: 0, badChecksum: 0, unknown: 0, lastPacketTime: 0, gaps: 0,
-                      framesReassembled: 0, framesAbandoned: 0, unknownTypes: {} };
+  var packetStats = { total: 0, good: 0, badChecksum: 0, unknown: 0, echo: 0, lastPacketTime: 0, gaps: 0,
+                      framesReassembled: 0, framesAbandoned: 0, unknownTypes: {}, echoTypes: {} };
   var PACKET_GAP_THRESHOLD = 3; // seconds — flag if no packets for this long
   var lastHealthLog = 0;
   var unknownLogged = 0;          // per-connection cap on "Unknown packet" debug lines
@@ -783,6 +791,7 @@
   // morning's 5403 packets.
   function resetPacketStats() {
     packetStats.total = 0; packetStats.good = 0; packetStats.badChecksum = 0; packetStats.unknown = 0;
+    packetStats.echo = 0; packetStats.echoTypes = {};
     packetStats.gaps = 0; packetStats.framesReassembled = 0; packetStats.framesAbandoned = 0;
     packetStats.lastPacketTime = 0; packetStats.unknownTypes = {};
     lastHealthLog = 0;
@@ -838,8 +847,21 @@
     return out.join(' ');
   }
   function shortHandle(uuid) { return (uuid && uuid.length >= 8) ? uuid.substring(4, 8).toUpperCase() : '?'; }
+  // With PS.ECHELON_FULL_INIT on, the equipment echoes our own init/keepalive
+  // writes back on F3: an EX-5S sent 60 A0 echoes in an 81-second connection,
+  // 42% of the stream. They are valid frames and not anomalies, so they get
+  // their own bucket — otherwise they exhaust the 10-line log cap and the
+  // 20-slot diag ring buffer, fire unknown_packet for nothing, and inflate the
+  // denominator the checksum error rate is measured against.
+  var ECHO_TYPES = { 0xA0: 1, 0xA1: 1, 0xA3: 1 };
+
   function noteUnknown(data, handle) {
     var type = '0x' + data[1].toString(16);
+    if (ECHO_TYPES[data[1]]) {
+      packetStats.echo++;
+      packetStats.echoTypes[type] = (packetStats.echoTypes[type] || 0) + 1;
+      return;
+    }
     packetStats.unknown++;
     packetStats.unknownTypes[type] = (packetStats.unknownTypes[type] || 0) + 1;
     if (unknownLogged < 10) {
@@ -910,16 +932,21 @@
     if (now - lastHealthLog > 300) {
       lastHealthLog = now;
       if (packetStats.total > 0) {
+        // Echoes are ours coming back — they can't be corrupt, so they'd only
+        // dilute the error rate. Measure it against the packets that can fail.
+        var rated = packetStats.total - packetStats.echo;
         debug('Packet health', {
           total: packetStats.total,
           good: packetStats.good,
           badCksum: packetStats.badChecksum,
           unknown: packetStats.unknown,
           unknownTypes: packetStats.unknownTypes,
+          echo: packetStats.echo,
+          echoTypes: packetStats.echoTypes,
           frames_reassembled: packetStats.framesReassembled,
           frames_abandoned: packetStats.framesAbandoned,
           gaps: packetStats.gaps,
-          errRate: packetStats.badChecksum > 0 ? Math.round(packetStats.badChecksum / packetStats.total * 100) + '%' : '0%'
+          errRate: (packetStats.badChecksum > 0 && rated > 0) ? Math.round(packetStats.badChecksum / rated * 100) + '%' : '0%'
         });
       }
     }

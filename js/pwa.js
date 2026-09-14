@@ -143,6 +143,16 @@
     return !!(s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected);
   }
 
+  // Reloading now would destroy something the rider can't get back. One
+  // definition, used by every path that might reload: the controller swap, the
+  // version poller's answer to the service worker, and the worker's own probe.
+  function pageBusy() {
+    if (isConnected()) return true;                                    // mid-workout
+    if (PS.connectInFlight && PS.connectInFlight()) return true;       // picker open or setupGATT running
+    if (PS.lastRideShowing && PS.lastRideShowing()) return true;       // finished workout still un-exported
+    return false;
+  }
+
   function reloadForUpdate() {
     if (reloading) return;
     // Loop guard: if this build already reloaded itself once in this tab and is
@@ -174,15 +184,66 @@
 
   function onControllerChange() {
     if (!hadController) { hadController = true; return; }   // first install claiming this page — nothing to swap
-    // Idle = not connected and not mid-connect (a reload during the picker or
-    // setupGATT would kill the connect in progress)
-    var inFlight = !!(PS.connectInFlight && PS.connectInFlight());
-    var holding = !!(PS.lastRideShowing && PS.lastRideShowing());   // unexported workout on the connect screen
-    if (!isConnected() && !inFlight && !holding) { reloadForUpdate(); return; }
+    if (!pageBusy()) { reloadForUpdate(); return; }
     // Mid-ride a reload would kill the BLE session and the in-memory ride
     // samples — fullDisconnectCleanup() applies it once the ride is over.
     s.updatePending = true;
     if (window.__pulse) window.__pulse('sw_update', 'deferred');
+  }
+
+  // ---- Deployed-build poller ----
+  // swReg.update() only re-fetches sw.js when the browser feels like it, and for
+  // a page that never navigates that is the ~24h periodic check. A tab opened
+  // Sep 11 was still running pre-rower-fix code three days later: the code that
+  // picks up a deploy shipped *inside* the deploy it never received. /api/version
+  // costs a few bytes and removes that dependency entirely.
+  var lastVersionCheck = 0;
+  var versionTimer = null;
+
+  // Builds are 'v<n>'. Test builds append a tag ('v20-t1'), so compare the number
+  // and fall back to string inequality — never treat a LOWER number as an update.
+  function buildNum(b) { var m = /^v(\d+)/.exec(b || ''); return m ? parseInt(m[1], 10) : -1; }
+
+  window.PSCheckVersion = function(force) {
+    var now = Date.now();
+    if (!force && now - lastVersionCheck < UPDATE_CHECK_MIN_MS) return Promise.resolve();
+    lastVersionCheck = now;
+    return fetch(PS.API_BASE + '/api/version', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        // A missing route or env value must never start a reload
+        if (!d || !d.build || d.build === 'unknown') return;
+        if (d.build === PS.BUILD) return;
+        if (buildNum(d.build) < buildNum(PS.BUILD)) return;   // endpoint is behind this page — don't go backwards
+        if (window.__pulse) window.__pulse('sw_update', 'version_mismatch:' + PS.BUILD + '>' + d.build);
+        // Deliberately NOT reloading here. This page's cache still holds the old
+        // assets, so a reload would serve them again, the loop guard would see
+        // its own build and pin the page on it for good. Forcing the worker
+        // update installs the new cache first; its controllerchange then does the
+        // reload — or defers it to the end of the workout — with the guards above.
+        if (window.PSCheckForUpdate) PSCheckForUpdate(true);
+      })
+      .catch(function() { /* offline is not an error */ });
+  };
+
+  function startVersionPoll() {
+    if (versionTimer) return;
+    versionTimer = setInterval(function() { window.PSCheckVersion(); }, PS.VERSION_POLL_MS);
+  }
+  function stopVersionPoll() {
+    if (versionTimer) { clearInterval(versionTimer); versionTimer = null; }
+  }
+
+  // The worker pings controlled pages to take a census (sw.js). Answering is what
+  // marks this page as one that can pick up a deploy on its own — pages older
+  // than the update-pickup code have no listener here, so silence is how the
+  // worker counts them.
+  function onSWMessage(event) {
+    var d = event.data;
+    if (!d || d.ps !== 'ping') return;
+    var port = event.ports && event.ports[0];
+    if (!port) return;
+    try { port.postMessage({ ps: 'pong', build: PS.BUILD, busy: pageBusy() }); } catch (e) { /* port closed */ }
   }
 
   // Called from ble.js once the page is idle again (end of a ride, or a connect
@@ -195,17 +256,22 @@
   };
 
   document.addEventListener('visibilitychange', function() {
-    if (document.visibilityState === 'hidden') { hiddenSince = Date.now(); return; }
-    if (document.visibilityState === 'visible' && hiddenSince && Date.now() - hiddenSince > UPDATE_CHECK_MIN_MS) {
+    if (document.visibilityState === 'hidden') { hiddenSince = Date.now(); stopVersionPoll(); return; }
+    if (document.visibilityState !== 'visible') return;
+    startVersionPoll();   // no point polling a background tab: it reloads on return anyway
+    if (hiddenSince && Date.now() - hiddenSince > UPDATE_CHECK_MIN_MS) {
       hiddenSince = 0;
       window.PSCheckForUpdate();
+      window.PSCheckVersion();
     }
   });
 
   window.addEventListener('DOMContentLoaded', function() {
+    if (document.visibilityState !== 'hidden') startVersionPoll();
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.register('/sw.js').then(function(reg) { swReg = reg; }).catch(function() {});
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    navigator.serviceWorker.addEventListener('message', onSWMessage);
   });
 
   // Expose install prompt state for connect screen

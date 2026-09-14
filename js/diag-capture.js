@@ -155,6 +155,11 @@
     if (!b || b.length < 2) return 'short';
     if (b[0] !== 0xF0) return 'cont';            // continuation fragment (rower D1 second half, or garbage)
     switch (b[1]) {
+      // Our own init/keepalive writes coming back on F3 with ECHELON_FULL_INIT
+      // on. Named so they stay out of the F0_* unknown scan below.
+      case 0xA0: return 'A0';
+      case 0xA1: return 'A1';
+      case 0xA3: return 'A3';
       case 0xE0: return 'E0';
       case 0xD0: return 'D0';
       case 0xD1: return 'D1';
@@ -191,6 +196,7 @@
       e0: { count: 0, firstAt: null, lastAt: null, afterKey: 0, afterEnable: 0, unique: {} },
       d1: { total: 0, zeroMotion: 0, revs: null, revsStaticAt: null, lastAt: null },   // zeroMotion: revs AND cadence both 0; revs/revsStaticAt: counter value + when it last changed
       d2: { total: 0, last: -1, changes: 0, lastChangeAt: null },                       // resistance changes = the knob was turned
+      echo: { total: 0, samples: {} },    // A0/A1/A3 echoes: count, plus the first of each verbatim
       unknownPkts: [],                    // last 20 unknown F0 types verbatim
       frames: { ok: 0, abandoned: 0, pending: null },   // split-frame tracking (rower D1 = 10 + 11)
       unlock: null,                // {challenge, sentAt, ms, ok, status, key, framed, serverDiag, error}
@@ -345,6 +351,8 @@
       revs_final: st.d1.revs,                    // last revolution-counter value — a frozen counter is readable without decoding hex
       revs_static_s: Math.round(revsStaticS()),  // how long it has held that value, as of the last D1
       d2_changes: st.d2.changes,
+      echo_total: st.echo.total,
+      echo_samples: st.echo.samples,
       unknown_pkts: st.unknownPkts,
       frames_ok: st.frames.ok,
       frames_abandoned: st.frames.abandoned,
@@ -423,6 +431,13 @@
       if (st.firstPkts.length < FIRST_KEEP) st.firstPkts.push(rec);
       else { st.ringPkts.push(rec); if (st.ringPkts.length > RING_KEEP) st.ringPkts.shift(); }
 
+      // Echoes: one sample of each is enough. The A1 frame carries what looks
+      // like status/config and is worth decoding one day; the A0s are just our
+      // own counter coming back twice a second.
+      if (type === 'A0' || type === 'A1' || type === 'A3') {
+        st.echo.total++;
+        if (!st.echo.samples[type]) st.echo.samples[type] = rec.hex;
+      }
       // Unknown F0 types: keep the last 20 verbatim — the head/tail packet window
       // in the snapshot can miss a rare type that shows up mid-ride
       if (type.indexOf('F0_') === 0) {
