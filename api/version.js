@@ -12,7 +12,7 @@
 // BUILD must equal CACHE_NAME in sw.js and PS.BUILD in js/state.js.
 // It lives here rather than in an env var so it cannot silently drift from
 // them, and test/test_frames.js fails if the three ever disagree.
-const BUILD = 'v20';
+const BUILD = 'v21';
 
 export default function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');

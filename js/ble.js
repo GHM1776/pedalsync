@@ -717,6 +717,7 @@
     }
     if (window.__pulse) window.__pulse('ride_complete', v);
     rideSummaryEmitted = true;
+    s.rideCompletedAt = Date.now() / 1000;   // the connect screen's help panel waits this out
   }
   // resetRide() starts a new ride on the same connection — allow another summary
   PS.resetRideSummaryFlag = function() { rideSummaryEmitted = false; };
@@ -1045,6 +1046,9 @@
 
     if (data[0] === 0xF0 && data[1] === 0xD3 && data.length >= 4) {
       s.rowerPower = data[3];
+      // Rower watts live here, not in the D1 that feeds powerSamples, so every
+      // rower workout reported avg 0W and sent avg_power 0 to the adaptive coach.
+      if (s.rowerPower > 0 && s.rowerPower < 1000) s.rowerPowerSamples.push(s.rowerPower);
       return true;
     }
     return false;

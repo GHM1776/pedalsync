@@ -6,6 +6,14 @@
   var planAbort = null;      // AbortController of the in-flight plan request
   var planCancelled = false; // set when the connection ended mid-request
 
+  // ble.js and app.js each keep their own private averager; this module needs one too
+  function avgOf(arr) {
+    if (!arr || !arr.length) return 0;
+    var t = 0;
+    for (var i = 0; i < arr.length; i++) t += arr[i];
+    return t / arr.length;
+  }
+
   // Called from fullDisconnectCleanup(): a plan response landing after the BLE
   // link is gone must not start a workout on the connect screen.
   window.abortPendingPlan = function() {
@@ -148,6 +156,8 @@
       s.powerSamples = [];
       s.cadenceSamples = [];
       s.spmSamples = [];
+      s.rowerPowerSamples = [];
+      s.treadSpeedSamples = [];
       s.workoutActive = true;
       s.planPending = false;
 
@@ -186,11 +196,17 @@
     s.workoutActive = false;
     s.workoutEndedAt = Date.now() / 1000;
     var elapsed = Date.now() / 1000 - s.workoutStartTime;
-    var avgP = s.powerSamples.length
-      ? Math.round(s.powerSamples.reduce(function(a, b) { return a + b; }, 0) / s.powerSamples.length)
-      : 0;
-    showCoaching('Workout complete! ' + Math.round(elapsed / 60) + ' min, avg ' + avgP + 'W. Great work.', 'DONE', 100);
-    if (window.__pulse) window.__pulse('workout_end', Math.round(elapsed / 60) + 'min:' + avgP + 'W');
+    // Each equipment type keeps its effort in a different array, and a treadmill
+    // has no power at all — reporting 0W there was misleading rather than missing.
+    var avg;
+    if (s.equipmentType === 'treadmill') {
+      avg = (Math.round(avgOf(s.treadSpeedSamples) * 10) / 10) + 'mph';
+    } else {
+      var src = s.equipmentType === 'rower' ? s.rowerPowerSamples : s.powerSamples;
+      avg = Math.round(avgOf(src)) + 'W';
+    }
+    showCoaching('Workout complete! ' + Math.round(elapsed / 60) + ' min, avg ' + avg + '. Great work.', 'DONE', 100);
+    if (window.__pulse) window.__pulse('workout_end', Math.round(elapsed / 60) + 'min:' + avg);
     var e = els();
     e.btnStart.disabled = false;
     setTimeout(function() { updateCoachUI(); }, 5000);
@@ -258,7 +274,7 @@
 
     var body;
     if (isRower) {
-      var recentPower = s.powerSamples.slice(-60);
+      var recentPower = s.rowerPowerSamples.slice(-60);   // bike powerSamples is never filled on a rower
       var recentSPM = s.spmSamples.slice(-60);
       body = {
         action: 'adaptive',

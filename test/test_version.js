@@ -69,6 +69,13 @@ eval(fs.readFileSync(path.join(J, 'state.js'), 'utf8'));
 eval(fs.readFileSync(path.join(J, 'pwa.js'), 'utf8'));
 const s = PS.state;
 
+// Derived, never hardcoded — this suite has to survive every version bump
+const CUR = PS.BUILD;                                    // what this page is running
+const N = parseInt(/^v(\d+)/.exec(CUR)[1], 10);
+const NEWER = 'v' + (N + 1);                             // a deploy that just landed
+const OLDER = 'v' + (N - 1);                             // a rollback, or a stale endpoint
+const TAGGED = CUR + '-t4';                              // same number, different build (test builds)
+
 (async () => {
   (winListeners['DOMContentLoaded'] || []).forEach(fn => fn({}));
   await sleep(10);   // register() resolves
@@ -87,24 +94,24 @@ const s = PS.state;
     return { events: pulse.slice(), updates: updateCalls, reloads: reloads, label };
   }
 
-  let r = await decide('v20', 'same build');
+  let r = await decide(CUR, 'same build');
   check('same build → nothing at all', r.events.length === 0 && r.updates === 0 && r.reloads === 0, r);
 
-  r = await decide('v21', 'newer build');
+  r = await decide(NEWER, 'newer build');
   check('newer build → version_mismatch event + forced worker update, and NO direct reload',
-    r.events.length === 1 && r.events[0] === 'sw_update:version_mismatch:v20>v21' && r.updates === 1 && r.reloads === 0, r);
+    r.events.length === 1 && r.events[0] === 'sw_update:version_mismatch:' + CUR + '>' + NEWER && r.updates === 1 && r.reloads === 0, r);
 
-  r = await decide('v20-t4', 'same number, different string (test tag)');
+  r = await decide(TAGGED, 'same number, different string (test tag)');
   check('same number but a different build string → treated as an update', r.updates === 1 && r.reloads === 0, r);
 
-  r = await decide('v19', 'older build');
+  r = await decide(OLDER, 'older build');
   check('endpoint BEHIND this page (rollback/stale) → nothing, never a reload backwards',
     r.events.length === 0 && r.updates === 0 && r.reloads === 0, r);
 
   r = await decide('unknown', 'unknown');
   check('build "unknown" (missing value) → nothing', r.events.length === 0 && r.updates === 0 && r.reloads === 0, r);
 
-  r = await decide('v21', 'http 500', 500);
+  r = await decide(NEWER, 'http 500', 500);
   check('non-200 response → nothing', r.events.length === 0 && r.updates === 0 && r.reloads === 0, r);
 
   serverBuild = null;
@@ -112,7 +119,7 @@ const s = PS.state;
   check('offline / rejected fetch → nothing, no throw', r.events.length === 0 && r.updates === 0 && r.reloads === 0, r);
 
   // ---- throttle ----
-  serverBuild = 'v21'; pulse.length = 0; updateCalls = 0;
+  serverBuild = NEWER; pulse.length = 0; updateCalls = 0;
   await PSCheckVersion();   // unforced, straight after the forced calls above
   await sleep(5);
   check('unforced call inside the 30-min window is throttled', updateCalls === 0 && pulse.length === 0, { updates: updateCalls, pulse });
@@ -124,9 +131,9 @@ const s = PS.state;
     onMessage({ data: data, ports: [{ postMessage: (m) => replies.push(m) }] });
     return replies;
   }
-  let replies = ping({ ps: 'ping', build: 'pedalsync-v21' });
+  let replies = ping({ ps: 'ping', build: 'pedalsync-' + NEWER });
   check('ping answered with this page\'s build and its busy state',
-    replies.length === 1 && replies[0].ps === 'pong' && replies[0].build === 'v20' && replies[0].busy === false, replies);
+    replies.length === 1 && replies[0].ps === 'pong' && replies[0].build === CUR && replies[0].busy === false, replies);
 
   check('a message that is not a ping is ignored', ping({ ps: 'something-else' }).length === 0);
   check('a ping with no reply port does not throw', (function() {

@@ -14,7 +14,7 @@ PS.API_BASE = location.origin;
 
 // Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
 // Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
-PS.BUILD = 'v20';
+PS.BUILD = 'v21';
 
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
@@ -28,6 +28,7 @@ PS.RECONNECT_DELAYS         = [1000, 2000, 4000, 8000, 15000];  // ms backoff be
 PS.HARDFAIL_AUTO_END_MS     = 5 * 60 * 1000;  // an untouched hard-fail banner ends the workout after this
 PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
 PS.VERSION_POLL_MS          = 60 * 60 * 1000;  // /api/version poll while the page is visible — a tab that never navigates has no other way to learn about a deploy
+PS.TROUBLE_AFTER_RIDE_S     = 120;  // a just-finished workout isn't "trouble" — hold the help panel back this long
 PS.NO_CADENCE_AFTER_S       = 60;   // bike D1 revolution counter static this long (never counted, or froze mid-ride) with the rider interacting = "no pedal motion"
 
 // ---- Mirror the official app's BLE init chatter (ON since v18) ----
@@ -97,6 +98,7 @@ PS.state = {
   rowerPower: 0,
   rowerSPMSamples: [],
   rowerSplitSamples: [],
+  rowerPowerSamples: [],       // rower watts come from D3, not D1 — powerSamples is bike-only
 
   // Treadmill telemetry — UNVERIFIED, byte map estimated
   treadSpeed: 0,          // mph (parsed from BLE, may need unit correction)
@@ -110,6 +112,7 @@ PS.state = {
   workoutActive: false,
   planPending: false,     // plan request in flight — not yet a workout
   workoutEndedAt: 0,      // unix sec stopWorkout() last ran (0 = never)
+  rideCompletedAt: 0,     // unix sec the last ride_complete was emitted (0 = never)
   workoutId: '',
   selectedDifficulty: 'easy',
   workoutPlan: [],

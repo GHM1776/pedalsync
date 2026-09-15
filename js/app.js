@@ -30,10 +30,19 @@
     if (troubleTimer) clearTimeout(troubleTimer);
     var el = document.getElementById('connect-trouble');
     if (el) el.classList.add('hidden');
-    troubleTimer = setTimeout(function() {
+    troubleTimer = setTimeout(function fire() {
       troubleTimer = null;
       var screen = document.getElementById('connect-screen');
       if (!el || !screen || screen.style.display === 'none' || screen.style.display === '') return;
+      // Finishing a workout lands you on this screen, and 60s later the panel
+      // was asking a rower who had just rowed 21 minutes whether their
+      // Bluetooth was off. Wait the window out, then reconsider — someone still
+      // stuck after that really is stuck.
+      var sinceRide = s.rideCompletedAt ? (Date.now() / 1000 - s.rideCompletedAt) : Infinity;
+      if (sinceRide < PS.TROUBLE_AFTER_RIDE_S) {
+        troubleTimer = setTimeout(fire, (PS.TROUBLE_AFTER_RIDE_S - sinceRide) * 1000);
+        return;
+      }
       updateTroubleLead();
       el.classList.remove('hidden');
       if (window.__pulse) window.__pulse('connect_trouble_shown', navigator.bluetooth ? 'ble_ok' : 'no_ble');
@@ -179,6 +188,7 @@
     s.rowerPower = 0;
     s.rowerSPMSamples = [];
     s.rowerSplitSamples = [];
+    s.rowerPowerSamples = [];
     s.spmSamples = [];
     // Treadmill reset
     s.treadSpeed = 0;
@@ -187,6 +197,12 @@
     s.treadDistanceDevice = 0;
     s.treadCaloriesDevice = 0;
     s.treadSpeedSamples = [];
+    // Bike effort history. Left behind, a second ride on the same page load
+    // inherited the first one's power and cadence, inflating ride_complete's
+    // avgW and the coach's avg_power. (coach.js clears these on startWorkout,
+    // so this only ever bit un-coached rides — which is most of them.)
+    s.powerSamples = [];
+    s.cadenceSamples = [];
     // Recording reset
     s.recordedPoints = [];
     s.lastRecordTime = 0;

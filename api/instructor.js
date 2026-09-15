@@ -3,6 +3,7 @@
 // Logs all workout plans and adaptive coaching to KV for admin review
 
 import { kv } from '@vercel/kv';
+import { normalizePlan, planTotal } from './_plan.js';
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://pedalsync.app';
 
@@ -44,7 +45,7 @@ Rules:
 - Easy: resistance 5-15, cadence 60-85, longer recovery, no sprints
 - Medium: resistance 8-22, cadence 65-100, moderate intervals
 - Hard: resistance 12-32, cadence 70-110, aggressive intervals and climbs
-- Total durations must sum to approximately DURATION_VALUE minutes
+- The duration_sec values must sum to exactly DURATION_SEC_VALUE seconds (DURATION_VALUE minutes)
 - Start with warmup, end with cool down
 - Vary segments — don't repeat the same type back to back
 - coaching_text: punchy, 1-2 sentences max
@@ -91,7 +92,7 @@ Rules:
 - Easy: resistance 2-5, SPM 18-24, focus on form and steady state
 - Medium: resistance 3-7, SPM 22-30, mix of steady state and intervals
 - Hard: resistance 5-10, SPM 26-36, aggressive intervals, rate builds, and power pieces
-- Total durations must sum to approximately DURATION_VALUE minutes
+- The duration_sec values must sum to exactly DURATION_SEC_VALUE seconds (DURATION_VALUE minutes)
 - Start with warmup, end with cool down
 - Vary segments — don't repeat the same type back to back
 - coaching_text: rowing-specific cues (drive with legs, squeeze at the catch, control the recovery, ratio, body angle, etc). Punchy, 1-2 sentences max.
@@ -262,6 +263,7 @@ export default async function handler(req, res) {
       const template = equipmentType === 'rower' ? ROWER_PLAN_PROMPT : BIKE_PLAN_PROMPT;
       const prompt = template
         .replaceAll('DIFFICULTY_VALUE', difficulty)
+        .replaceAll('DURATION_SEC_VALUE', String(duration * 60))
         .replaceAll('DURATION_VALUE', String(duration));
 
       const text = await callClaude(prompt);
@@ -297,6 +299,16 @@ export default async function handler(req, res) {
           coaching_text: String(seg.coaching_text || '').substring(0, 200),
         }));
       }
+
+      // The prompt asks for an exact total and the model still drifts, so correct
+      // it here: scale the segments to the requested time, fix any inverted
+      // min/max, and ease the ends. Logged so the size of the drift is visible —
+      // if it stays small the scaling is cheap insurance either way.
+      const driftBefore = planTotal(safePlan);
+      safePlan = normalizePlan(safePlan, duration, equipmentType);
+      console.log('plan_normalized', JSON.stringify({
+        requested: duration * 60, before: driftBefore, after: planTotal(safePlan), segments: safePlan.length,
+      }));
 
       // Log workout to KV
       const workoutId = generateWorkoutId();

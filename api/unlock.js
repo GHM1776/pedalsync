@@ -201,21 +201,30 @@ export default async function handler(req, res) {
     outcome: null,
   };
 
+  // The diag object is for the server log only. It names the Echelon account's
+  // plan tier, the upstream auth status and timing, and on a failure a snippet
+  // of Echelon's own response body — and anything the client receives is
+  // beaconed on to Pulse by PSDiag, where none of it serves a purpose. The
+  // browser gets the key or the message, nothing else. Stripped here rather
+  // than at each call site so a future error path cannot leak it by omission;
+  // diag.session still carries the Pulse session id, so a '[unlock]' log line
+  // joins to its session exactly as before.
   const finish = (status, body) => {
     if (!diag.outcome) diag.outcome = status === 200 ? 'ok' : 'error';
     console.log('[unlock]', JSON.stringify(diag));
-    return res.status(status).json(body);
+    const { diag: _serverOnly, ...clientSafe } = body || {};
+    return res.status(status).json(clientSafe);
   };
 
   if (!challenge || typeof challenge !== 'string') {
     diag.outcome = 'bad_request_missing_challenge';
-    return finish(400, { error: 'Missing challenge (base64-encoded E0 bytes)', diag });
+    return finish(400, { error: 'Missing challenge (base64-encoded E0 bytes)' });
   }
 
   // Basic validation — challenge should be valid base64, ~12 chars for 8 bytes
   if (challenge.length > 20 || !/^[A-Za-z0-9+/=]+$/.test(challenge)) {
     diag.outcome = 'bad_request_challenge_format';
-    return finish(400, { error: 'Invalid challenge format', diag });
+    return finish(400, { error: 'Invalid challenge format' });
   }
 
   const cBytes = Buffer.from(challenge, 'base64');
@@ -243,19 +252,19 @@ export default async function handler(req, res) {
 
     if (r.aborted) {
       diag.outcome = 'echelon_timeout';
-      return finish(502, { error: 'Echelon unlock service timed out. Try again.', diag });
+      return finish(502, { error: 'Echelon unlock service timed out. Try again.' });
     }
     if (!r.ok) {
       diag.echelon.body_snippet = snippet(r.text) || r.error || null;
       diag.outcome = 'echelon_http_' + r.status;
-      return finish(502, { error: `Unlock failed — Echelon returned ${r.status}`, diag });
+      return finish(502, { error: `Unlock failed — Echelon returned ${r.status}` });
     }
 
     let result;
     try { result = JSON.parse(r.text); } catch {
       diag.echelon.body_snippet = snippet(r.text);
       diag.outcome = 'echelon_bad_body';
-      return finish(502, { error: 'Unlock failed — invalid response from server', diag });
+      return finish(502, { error: 'Unlock failed — invalid response from server' });
     }
 
     // Unexpected extra fields are new-scheme hints — always log them
@@ -267,7 +276,7 @@ export default async function handler(req, res) {
     if (result.status !== 'success' || !result.data || !result.data.key) {
       diag.echelon.body_snippet = snippet(r.text);
       diag.outcome = 'echelon_bad_response';
-      return finish(502, { error: 'Unlock failed — invalid response from server', diag });
+      return finish(502, { error: 'Unlock failed — invalid response from server' });
     }
 
     const keyB64 = result.data.key;
@@ -291,12 +300,12 @@ export default async function handler(req, res) {
     }
 
     diag.outcome = 'ok';
-    return finish(200, { key: keyB64, diag });
+    return finish(200, { key: keyB64 });
 
   } catch (err) {
     console.error('Unlock error:', err);
     if (!diag.outcome) diag.outcome = 'proxy_error';
     diag.error = err.message || String(err);
-    return finish(500, { error: 'Unlock service error. Try again.', diag });
+    return finish(500, { error: 'Unlock service error. Try again.' });
   }
 }
