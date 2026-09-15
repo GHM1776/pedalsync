@@ -61,9 +61,14 @@ Current state:
 - Actual: resistance ACTUAL_R, cadence ACTUAL_C, power ACTUAL_PW
 - Elapsed: ELAPSED_M min, remaining: ~REMAINING_M min
 - Averages: AVG_PW, AVG_C RPM
+- Heart rate: HR_LINE
 
 Give a 1-2 sentence coaching cue based on performance vs targets.
 Crushing it? Push them. Struggling? Encourage.
+Heart rate is context, not a reason on its own. Never tell them to ease off a
+target they are already hitting because their heart rate is high or climbing —
+it rises through any warm-up and drifts upward during correct steady-state work.
+Mention it only where it conflicts with what resistance, cadence and power say.
 Direct, motivational, not cheesy.
 Respond with ONLY the coaching text.`;
 
@@ -108,6 +113,12 @@ Current state:
 - Actual: resistance ACTUAL_R, stroke rate ACTUAL_SPM SPM, power ACTUAL_PW, split ACTUAL_SPLIT
 - Elapsed: ELAPSED_M min, remaining: ~REMAINING_M min
 - Averages: AVG_PW, AVG_SPM SPM
+- Heart rate: HR_LINE
+
+Heart rate is context, not a reason on its own. Never tell them to ease off a
+target they are already hitting because their heart rate is high or climbing —
+it rises through any warm-up and drifts upward during correct steady-state work.
+Mention it only where it conflicts with what resistance, cadence and power say.
 
 Give a 1-2 sentence rowing coaching cue based on performance vs targets.
 Use rowing-specific language: legs-body-arms sequence, drive ratio, catch timing, handle height, body angle, power application.
@@ -149,6 +160,19 @@ function sanitizeEnum(val, allowed, fallback) {
 function sanitizeRange(val) {
   if (typeof val !== 'string') return '0';
   return val.replace(/[^0-9\- ]/g, '').substring(0, MAX_INPUT_LEN) || '0';
+}
+
+// Heart rate is optional and equipment-independent. Absent, it must leave the
+// cue identical to what it would have been — so the prompt says so explicitly
+// rather than carrying a zero the model might reason about.
+function hrLine(body) {
+  const now = sanitizeInt(body.actual_hr, 0, 230, 0);
+  const avg = sanitizeInt(body.avg_hr, 0, 230, 0);
+  if (!now && !avg) return 'not available — ignore heart rate entirely';
+  const parts = [];
+  if (now) parts.push(now + ' bpm now');
+  if (avg) parts.push(avg + ' bpm average over the last minute');
+  return parts.join(', ');
 }
 
 function getUserId(body) {
@@ -354,7 +378,8 @@ export default async function handler(req, res) {
           .replace('ELAPSED_M', String(elapsedM))
           .replace('REMAINING_M', String(remainM))
           .replace('AVG_PW', String(avgP))
-          .replace('AVG_SPM', String(avgSPM));
+          .replace('AVG_SPM', String(avgSPM))
+          .replace('HR_LINE', hrLine(req.body));
 
         const coaching = await callClaude(prompt);
         const coachingText = coaching.trim().substring(0, 300);
@@ -368,6 +393,7 @@ export default async function handler(req, res) {
           elapsed: elapsedM,
           remaining: remainM,
           averages: { power: avgP, spm: avgSPM },
+          hr: hrLine(req.body),
           coaching: coachingText,
         });
 
@@ -400,7 +426,8 @@ export default async function handler(req, res) {
           .replace('ELAPSED_M', String(elapsedM))
           .replace('REMAINING_M', String(remainM))
           .replace('AVG_PW', String(avgP))
-          .replace('AVG_C', String(avgC));
+          .replace('AVG_C', String(avgC))
+          .replace('HR_LINE', hrLine(req.body));
 
         const coaching = await callClaude(prompt);
         const coachingText = coaching.trim().substring(0, 300);
@@ -414,6 +441,7 @@ export default async function handler(req, res) {
           elapsed: elapsedM,
           remaining: remainM,
           averages: { power: avgP, cadence: avgC },
+          hr: hrLine(req.body),
           coaching: coachingText,
         });
 

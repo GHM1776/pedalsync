@@ -34,6 +34,7 @@
       <li><span>▸</span> AI-powered workout coach</li>
       <li><span>▸</span> Auto-unlocks locked firmware (v3.12+, Connect &amp; Connect Sport included)</li>
       <li><span>▸</span> Export workouts to Strava &amp; Garmin</li>
+      <li><span>▸</span> Heart rate from any standard Bluetooth strap</li>
       <li><span>▸</span> No app install — runs in Chrome or Edge</li>
     </ul>
   </div>
@@ -57,6 +58,11 @@
         <div class="equip-name">Safari &amp; Firefox</div>
         <div class="equip-models">On a Mac, open this page in Chrome or Edge instead</div>
       </div>
+    </div>
+    <div class="landing-help">
+      Heart rate works with any standard Bluetooth strap — Polar, Wahoo, Garmin,
+      Coospo — and with Garmin, Polar, Coros and Suunto watches in broadcast mode.
+      Apple Watch doesn't expose heart rate to other apps, so it can't be used.
     </div>
   </div>
 
@@ -128,6 +134,15 @@
     <div class="last-ride-name" id="last-ride-name">—</div>
     <div class="last-ride-stats" id="last-ride-stats">—</div>
     <button class="btn-sm last-ride-export" onclick="exportWorkout()">EXPORT</button>
+  </div>
+
+  <div class="hr-connect">
+    <button class="btn-sm btn-hr" onclick="toggleHR()">&#9829; CONNECT HR</button>
+    <div class="hr-connect-note">
+      Optional. Works with any standard Bluetooth heart rate strap, or a Garmin,
+      Polar, Coros or Suunto watch in broadcast mode. Heart rate is written into
+      your exported workout.
+    </div>
   </div>
 
   <div class="connect-divider">OR</div>
@@ -219,6 +234,17 @@
     </div>
   </div>
 
+  <!-- Heart rate — an optional accessory on its own connection (js/hr.js).
+       Classes, not ids: one renderer updates every tile, so they can't drift. -->
+  <div class="hr-tile">
+    <div class="hr-reading">
+      <span class="hr-glyph">&#9829;</span>
+      <span class="hr-bpm">&mdash;</span>
+      <span class="stat-unit">BPM</span>
+    </div>
+    <div class="hr-device">Pair a Bluetooth heart rate strap, or a watch in broadcast mode.</div>
+  </div>
+
   <!-- Bike AI Coach — no gate, available immediately -->
   <div class="coach-panel" id="coach-panel">
     <div class="coach-setup" id="coach-setup">
@@ -271,6 +297,7 @@
   <div class="controls-bar">
     <button class="btn-sm" onclick="resetRide()">RESET</button>
     <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm btn-hr" onclick="toggleHR()">&#9829; CONNECT HR</button>
     <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
   </div>
 </div>
@@ -344,6 +371,17 @@
     </div>
   </div>
 
+  <!-- Heart rate — an optional accessory on its own connection (js/hr.js).
+       Classes, not ids: one renderer updates every tile, so they can't drift. -->
+  <div class="hr-tile">
+    <div class="hr-reading">
+      <span class="hr-glyph">&#9829;</span>
+      <span class="hr-bpm">&mdash;</span>
+      <span class="stat-unit">BPM</span>
+    </div>
+    <div class="hr-device">Pair a Bluetooth heart rate strap, or a watch in broadcast mode.</div>
+  </div>
+
   <!-- Rower AI Coach — no gate, available immediately -->
   <div class="coach-panel" id="rower-coach-panel">
     <div class="coach-setup" id="rower-coach-setup">
@@ -396,6 +434,7 @@
   <div class="controls-bar">
     <button class="btn-sm" onclick="resetRide()">RESET</button>
     <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm btn-hr" onclick="toggleHR()">&#9829; CONNECT HR</button>
     <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
   </div>
 </div>
@@ -467,9 +506,22 @@
     </div>
   </div>
 
+  <!-- Heart rate — an optional accessory on its own connection (js/hr.js).
+       Classes, not ids: one renderer updates every tile, so they can't drift. -->
+  <div class="hr-tile">
+    <div class="hr-reading">
+      <span class="hr-glyph">&#9829;</span>
+      <span class="hr-bpm">&mdash;</span>
+      <span class="stat-unit">BPM</span>
+    </div>
+    <div class="hr-device">Pair a Bluetooth heart rate strap, or a watch in broadcast mode.</div>
+  </div>
+
+
   <div class="controls-bar">
     <button class="btn-sm" onclick="resetRide()">RESET</button>
     <button class="btn-sm" onclick="exportWorkout()">EXPORT</button>
+    <button class="btn-sm btn-hr" onclick="toggleHR()">&#9829; CONNECT HR</button>
     <button class="btn-sm" onclick="disconnectBike()">DISCONNECT</button>
   </div>
 </div>
@@ -479,6 +531,7 @@
 <script src="/js/diag-capture.js"></script>
 <script src="/js/pwa.js"></script>
 <script src="/js/ble.js"></script>
+<script src="/js/hr.js"></script>
 <script src="/js/bike-dashboard.js"></script>
 <script src="/js/rower-dashboard.js"></script>
 <script src="/js/treadmill-dashboard.js"></script>

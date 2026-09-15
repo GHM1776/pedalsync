@@ -20,6 +20,14 @@
       equipmentType: s.equipmentType,
     };
 
+    // Heart rate is equipment-independent. Through PS.hr.current() and never
+    // s.heartRate with an inline guard: an inline check catches contact loss but
+    // misses the notification timeout, so a strap whose battery dies mid-ride
+    // would keep writing its last value into every remaining trackpoint — the
+    // tile showing a dash while the file recorded a flatline.
+    var hr = (PS.hr && PS.hr.current) ? PS.hr.current() : 0;
+    if (hr > 0) point.heartRate = hr;
+
     if (s.equipmentType === 'rower') {
       point.cadence = s.rowerSPM;
       point.power = s.rowerPower;
@@ -79,7 +87,13 @@
     }
 
     var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    // xmlns:xsi must be declared at the root: the only other declaration is on
+    // <Creator>, scoped to that element, so an xsi:type on a trackpoint earlier
+    // in the document would be an undeclared prefix and the file unparseable.
+    // Unconditional — every real Garmin TCX carries it and it is valid with or
+    // without heart rate.
     xml += '<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" ';
+    xml += 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ';
     xml += 'xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n';
     xml += '  <Activities>\n';
     xml += '    <Activity Sport="' + sport + '">\n';
@@ -88,6 +102,20 @@
     xml += '        <TotalTimeSeconds>' + Math.round(totalTime) + '</TotalTimeSeconds>\n';
     xml += '        <DistanceMeters>' + totalDist.toFixed(1) + '</DistanceMeters>\n';
     xml += '        <Calories>' + totalCal + '</Calories>\n';
+    // ActivityLap_t order: ...Calories, AverageHeartRateBpm?, MaximumHeartRateBpm?,
+    // Intensity... Strava recomputes these from the trackpoints, but Garmin
+    // Connect and TrainingPeaks read them.
+    if (s.hrSamples && s.hrSamples.length) {
+      var hrSum = 0, hrMax = 0;
+      for (var h = 0; h < s.hrSamples.length; h++) {
+        hrSum += s.hrSamples[h].bpm;
+        if (s.hrSamples[h].bpm > hrMax) hrMax = s.hrSamples[h].bpm;
+      }
+      xml += '        <AverageHeartRateBpm xsi:type="HeartRateInBeatsPerMinute_t"><Value>' +
+             Math.round(hrSum / s.hrSamples.length) + '</Value></AverageHeartRateBpm>\n';
+      xml += '        <MaximumHeartRateBpm xsi:type="HeartRateInBeatsPerMinute_t"><Value>' +
+             Math.round(hrMax) + '</Value></MaximumHeartRateBpm>\n';
+    }
     xml += '        <Intensity>Active</Intensity>\n';
     xml += '        <TriggerMethod>Manual</TriggerMethod>\n';
     xml += '        <Track>\n';
@@ -100,6 +128,16 @@
       if (p.distance !== undefined) {
         var dist = (type === 'rower') ? p.distance : p.distance;
         xml += '            <DistanceMeters>' + dist.toFixed(1) + '</DistanceMeters>\n';
+      }
+
+      // Trackpoint_t is an ordered sequence — HeartRateBpm belongs between
+      // DistanceMeters and Cadence. Out of order, the file fails validation and
+      // Garmin Connect rejects it. Whole numbers only: Garmin rejects decimals
+      // in heart rate, cadence, watts and calories.
+      if (p.heartRate !== undefined) {
+        xml += '            <HeartRateBpm xsi:type="HeartRateInBeatsPerMinute_t">\n';
+        xml += '              <Value>' + Math.round(p.heartRate) + '</Value>\n';
+        xml += '            </HeartRateBpm>\n';
       }
 
       // Cadence (bikes and rowers use this field)

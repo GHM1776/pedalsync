@@ -94,6 +94,9 @@
       updateBikeDisplay();
     }
 
+    // One renderer for every HR tile; also applies the staleness timeout
+    if (PS.hr && PS.hr.render) PS.hr.render();
+
     // Track ride completion
     checkRideCompletion();
 
@@ -203,6 +206,9 @@
     // so this only ever bit un-coached rides — which is most of them.)
     s.powerSamples = [];
     s.cadenceSamples = [];
+    // Heart-rate READING state only. hrDeviceName is not reading state — the
+    // strap is still connected and still labels the tile.
+    if (PS.hrClearReadings) PS.hrClearReadings();
     // Recording reset
     s.recordedPoints = [];
     s.lastRecordTime = 0;

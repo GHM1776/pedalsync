@@ -14,7 +14,7 @@ PS.API_BASE = location.origin;
 
 // Build tag — keep equal to CACHE_NAME in sw.js (test/test_frames.js checks).
 // Used only by the service-worker reload loop guard (sessionStorage.ps_reloaded).
-PS.BUILD = 'v21';
+PS.BUILD = 'v22';
 
 // ---- Timeouts ----
 PS.IDLE_TIMEOUT_WORKOUT    = 300;   // 5 min — auto-stop workout
@@ -28,6 +28,7 @@ PS.RECONNECT_DELAYS         = [1000, 2000, 4000, 8000, 15000];  // ms backoff be
 PS.HARDFAIL_AUTO_END_MS     = 5 * 60 * 1000;  // an untouched hard-fail banner ends the workout after this
 PS.PLAN_TIMEOUT_MS          = 45000; // coach plan / adaptive fetch abort — 45-min plans took >20s
 PS.VERSION_POLL_MS          = 60 * 60 * 1000;  // /api/version poll while the page is visible — a tab that never navigates has no other way to learn about a deploy
+PS.HR_STALE_AFTER_S         = 10;   // a strap that stops notifying without disconnecting (dead battery, out of range)
 PS.TROUBLE_AFTER_RIDE_S     = 120;  // a just-finished workout isn't "trouble" — hold the help panel back this long
 PS.NO_CADENCE_AFTER_S       = 60;   // bike D1 revolution counter static this long (never counted, or froze mid-ride) with the rider interacting = "no pedal motion"
 
@@ -99,6 +100,15 @@ PS.state = {
   rowerSPMSamples: [],
   rowerSplitSamples: [],
   rowerPowerSamples: [],       // rower watts come from D3, not D1 — powerSamples is bike-only
+
+  // Heart rate — an optional accessory on its own GATT connection (js/hr.js).
+  // Read it through PS.hr.current(), never these fields directly.
+  heartRate: 0,                // latest BPM as reported; 0 = none
+  hrStale: false,              // sensor contact lost — heartRate may be a frozen value
+  hrSamples: [],               // [{bpm, ts}] — ts in unix sec. Straps notify at different
+                               // rates, so a sample count is not a time window.
+  hrDeviceName: '',            // not reading state: kept while connected, it labels the tile
+  lastHrTime: 0,               // unix sec of the last VALID reading
 
   // Treadmill telemetry — UNVERIFIED, byte map estimated
   treadSpeed: 0,          // mph (parsed from BLE, may need unit correction)

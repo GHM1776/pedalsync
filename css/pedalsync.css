@@ -410,6 +410,7 @@ body {
 }
 .controls-bar {
   display: flex;
+  flex-wrap: wrap;   /* the HR button makes four — let it drop to a second row on a phone */
   gap: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
@@ -928,6 +929,67 @@ body {
   display: flex;
   gap: 8px;
   margin-left: auto;
+}
+/* ---- Heart rate ---- */
+.hr-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  text-align: center;
+  position: relative;
+}
+.hr-tile::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 2px;
+  background: var(--border);
+  transition: background 0.3s;
+}
+.hr-tile.active::before {
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(255, 61, 0, 0.4);
+}
+.hr-reading {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+.hr-glyph {
+  color: var(--border);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.hr-tile.active .hr-glyph { color: var(--red); }
+.hr-bpm {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  line-height: 1;
+}
+.hr-tile.active .hr-bpm { color: var(--text); }
+/* connected but not reporting — contact lost, dead battery, out of range */
+.hr-tile.stale .hr-bpm, .hr-tile.stale .hr-glyph { color: var(--text-dim); opacity: 0.6; }
+.hr-device {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+  margin-top: 4px;
+}
+.hr-connect {
+  width: 100%;
+  max-width: 480px;
+  margin: 4px 0 8px;
+  text-align: center;
+}
+.hr-connect-note {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin-top: 6px;
 }
 .connect-trouble-lead {
   margin: 0 0 10px;

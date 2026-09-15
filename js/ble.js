@@ -337,6 +337,10 @@
       s.connectFailures = 0;
       if (window.clearConnectTrouble) clearConnectTrouble();
       if (window.hideLastRideCard) hideLastRideCard();
+      // Re-attach a known heart-rate strap, but only now that equipment
+      // telemetry is flowing — never a second GATT attempt in parallel with
+      // the first, which is where budget Android BLE stacks fall over.
+      if (PS.hr && PS.hr.autoReconnect) setTimeout(function() { PS.hr.autoReconnect(); }, 2000);
 
     } catch(err) {
       if (err.name === 'NotFoundError') {
@@ -508,7 +512,7 @@
     if (intentionalDisconnect) {
       debug('Intentional disconnect, cleaning up');
       if (window.__pulse) window.__pulse('disconnect', (s.autoDisconnected ? 'auto:' : 'user:') + s.equipmentType + ':' + s.bikeModel);
-      fullDisconnectCleanup();
+      fullDisconnectCleanup(null, { disconnectHR: true });
       return;
     }
 
@@ -620,7 +624,7 @@
     clearHardFailTimer();
     if (window.__pulse) window.__pulse('disconnect', 'ended:' + s.equipmentType + ':' + s.bikeModel + ':' + tag);
     dropEmitted = true;           // a still-held drop is accounted for by this event
-    fullDisconnectCleanup('Workout ended. Tap CONNECT to start another.');
+    fullDisconnectCleanup('Workout ended. Tap CONNECT to start another.', { disconnectHR: true });
   };
 
   async function attemptReconnect(attempt, gen) {
@@ -724,7 +728,13 @@
 
   // ---- Full Cleanup (only on intentional disconnect or failed reconnect) ----
   // msg: optional connect-status text (callers that pass nothing keep the old copy)
-  function fullDisconnectCleanup(msg) {
+  // opts.disconnectHR: tear the heart-rate strap down too. Only the three paths
+  // that mean "this session is over by choice" pass it — the DISCONNECT control,
+  // the banner's END WORKOUT, and a page teardown. The done/asleep paths leave
+  // the strap connected so the next ride needs no re-pair, and stopWorkout()
+  // never comes through here at all: ending a coached workout leaves the rider
+  // on the bike with both the equipment and the strap still streaming.
+  function fullDisconnectCleanup(msg, opts) {
     reconnecting = false;
     reconnectGen++;            // any reconnect loop still running dies at its next check
     clearHardFailTimer();
@@ -760,6 +770,7 @@
     // beaconed). A reload would wipe the samples behind the card, so while it's
     // showing the update waits for the next CONNECT tap. Otherwise the connect
     // screen is back — a good moment to look for one.
+    if (opts && opts.disconnectHR && PS.hr && PS.hr.equipmentTeardown) PS.hr.equipmentTeardown();
     var reloading = !cardShown && !!(window.PSApplyPendingUpdate && PSApplyPendingUpdate());
     if (!reloading && window.PSCheckForUpdate) PSCheckForUpdate();
     if (!reloading && window.PSCheckVersion) PSCheckVersion();
@@ -773,7 +784,7 @@
       s.bleDevice.gatt.disconnect();
     } else {
       // Already disconnected (maybe during reconnect attempts), just clean up
-      fullDisconnectCleanup();
+      fullDisconnectCleanup(null, { disconnectHR: true });
     }
   };
 

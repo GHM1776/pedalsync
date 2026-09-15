@@ -14,6 +14,22 @@
     return t / arr.length;
   }
 
+  // Heart rate for the adaptive call. Filtered by TIMESTAMP, not sample count:
+  // straps notify at different rates, so slice(-60) is a two-minute window on a
+  // 2s notifier and thirty seconds on a fast one. Unweighted mean of the
+  // notifications in the window — close enough while real straps report
+  // steadily; per-second bucketing is the clean fix if it ever matters.
+  function hrFields() {
+    var now = PS.hr && PS.hr.current ? PS.hr.current() : 0;
+    var cutoff = Date.now() / 1000 - 60;
+    var sum = 0, n = 0;
+    for (var i = s.hrSamples.length - 1; i >= 0; i--) {
+      if (s.hrSamples[i].ts < cutoff) break;
+      sum += s.hrSamples[i].bpm; n++;
+    }
+    return { actual_hr: now || null, avg_hr: n ? Math.round(sum / n) : null };
+  }
+
   // Called from fullDisconnectCleanup(): a plan response landing after the BLE
   // link is gone must not start a workout on the connect screen.
   window.abortPendingPlan = function() {
@@ -294,6 +310,9 @@
         avg_spm: recentSPM.length ? Math.round(recentSPM.reduce(function(a, b) { return a + b; }, 0) / recentSPM.length) : 0,
         beta_code: getUserId(),
       };
+      var hrR = hrFields();
+      body.actual_hr = hrR.actual_hr;
+      body.avg_hr = hrR.avg_hr;
     } else {
       var recentP = s.powerSamples.slice(-60);
       var recentCad = s.cadenceSamples.slice(-60);
@@ -314,6 +333,9 @@
         avg_cadence: recentCad.length ? Math.round(recentCad.reduce(function(a, b) { return a + b; }, 0) / recentCad.length) : 0,
         beta_code: getUserId(),
       };
+      var hrB = hrFields();
+      body.actual_hr = hrB.actual_hr;
+      body.avg_hr = hrB.avg_hr;
     }
 
     var ctl = new AbortController();
